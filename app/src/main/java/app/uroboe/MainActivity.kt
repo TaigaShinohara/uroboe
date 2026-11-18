@@ -3,18 +3,12 @@ package app.uroboe
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
-import androidx.compose.foundation.border
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.text.TextStyle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -29,30 +23,29 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.lightColorScheme
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -60,26 +53,27 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
-import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
@@ -94,38 +88,20 @@ object Palette {
     val PinkBg = Color(0xFFFCE7F1)
     val Orange = Color(0xFFE65100)
     val OrangeBg = Color(0xFFFFEDD9)
-    val Purple = Color(0xFF6A1B9A)
-    val PurpleBg = Color(0xFFF1E6F7)
 }
 
-private fun fmtDate(ms: Long): String =
-    SimpleDateFormat("M月d日", Locale.JAPAN).format(Date(ms))
+private data class NoticeState(
+    val text: String,
+    val undoLabel: String? = null,
+    val onUndo: (() -> Unit)? = null,
+)
 
 private fun fmtDateFull(ms: Long): String =
     SimpleDateFormat("yyyy年M月d日", Locale.JAPAN).format(Date(ms))
 
-/** 目のアイコン（v0.3.1〜「見た」ボタン用）。線と瞳だけで描く。 */
-@Composable
-private fun EyeIcon(color: Color, size: Dp = 18.dp) {
-    Canvas(Modifier.size(size)) {
-        val w = this.size.width
-        val h = this.size.height
-        val path = Path().apply {
-            moveTo(w * 0.04f, h * 0.5f)
-            quadraticBezierTo(w * 0.5f, h * -0.18f, w * 0.96f, h * 0.5f)
-            quadraticBezierTo(w * 0.5f, h * 1.18f, w * 0.04f, h * 0.5f)
-            close()
-        }
-        drawPath(path, color = color, style = Stroke(width = w * 0.07f))
-        drawCircle(color = color, radius = w * 0.13f, center = center)
-    }
-}
-
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // v0.3.3：明るい背景でもステータスバーの時刻・電池が読めるよう、アイコンは濃色で固定する
-        // （既定だと白アイコンになり、クリーム色の背景に溶けて読めなかった）
         enableEdgeToEdge(
             statusBarStyle = androidx.activity.SystemBarStyle.light(
                 android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT,
@@ -158,30 +134,27 @@ fun UroboeApp(store: MemoStore) {
     val prefs = remember { context.getSharedPreferences("uroboe_prefs", Context.MODE_PRIVATE) }
     val data by store.data.collectAsState()
     var now by remember { mutableStateOf(System.currentTimeMillis()) }
-    // v0.3.6（遷移レビュー）：画面回転などの再生成でも、開いている画面が消えないよう保持する
     var writeOpen by rememberSaveable { mutableStateOf(false) }
     var detailId by rememberSaveable { mutableStateOf<Long?>(null) }
     var confirmDeleteId by remember { mutableStateOf<Long?>(null) }
     var confirmWipe by remember { mutableStateOf(false) }
     var showAbout by remember { mutableStateOf(false) }
     var showOnboarding by remember { mutableStateOf(!prefs.getBoolean("onboarded", false)) }
-    // v0.3 B4：保存・暗記の直後に小さな一言フィードバックを出す
-    var notice by remember { mutableStateOf<String?>(null) }
-    // v0.3.2 修正：同じ文言が続くとタイマーが再起動せず一瞬で消えたため、連番で必ず再表示する
+
+    var notice by remember { mutableStateOf<NoticeState?>(null) }
     var noticeKey by remember { mutableStateOf(0) }
-    fun showNotice(text: String) {
-        notice = text
+    fun showNotice(text: String, undoLabel: String? = null, onUndo: (() -> Unit)? = null) {
+        notice = NoticeState(text, undoLabel, onUndo)
         noticeKey++
     }
     LaunchedEffect(noticeKey) {
-        if (notice != null) {
-            delay(2800)
+        val current = notice
+        if (current != null) {
+            delay(if (current.onUndo != null) 4200 else 2800)
             notice = null
         }
     }
 
-    // v0.3.2 修正：バックグラウンドから戻った直後に評価と表示を最新化する
-    // （従来は60秒タイマーを待つ間、前日の再会が残って見えた）
     val activity = LocalContext.current as? ComponentActivity
     DisposableEffect(activity) {
         if (activity == null) return@DisposableEffect onDispose { }
@@ -209,39 +182,50 @@ fun UroboeApp(store: MemoStore) {
                 prefs.edit().putBoolean("onboarded", true).apply()
                 showOnboarding = false
             },
-            // v0.3.6（遷移レビュー）：「使い方」からの再表示では、戻る操作でホームへ帰れるようにする
             canExitToHome = prefs.getBoolean("onboarded", false),
             onExit = { showOnboarding = false },
-            // v0.3.10：選んだタイプを保存しておく（将来の出し分け用）
             onSelectType = { prefs.edit().putInt("user_type", it).apply() },
         )
         return
     }
 
-    // v0.3.1：新規メモはダイアログでなく全画面で書く（本人の指示）
     if (writeOpen) {
         WriteScreen(
             onDismiss = { writeOpen = false },
             onSave = { body, q, a ->
                 store.addMemo(body, q, a)
                 writeOpen = false
-                showNotice("メモしました。忘れかけた頃、また出会えます")
+                now = System.currentTimeMillis()
+                showNotice("メモしました。忘れかけた頃に上へ浮かびます")
             },
         )
         return
     }
 
-    // v0.3.9（本人の指示）：メモを開くときはダイアログでなく、書く画面と同じ全画面で開く
     val detailMemo = detailId?.let { id -> data.memos.firstOrNull { it.id == id } }
     if (detailMemo != null) {
         EditScreen(
-            memo = detailMemo, now = now,
-            onBack = { detailId = null },
-            onEdit = { body, q, a -> store.editBody(detailMemo.id, body, q, a) },
-            onMemorize = {
-                store.update({ MemoLogic.startLearning(it, System.currentTimeMillis()) }, detailMemo.id)
+            memo = detailMemo,
+            onOpened = { store.markReviewed(detailMemo.id) },
+            onBack = {
                 detailId = null
-                showNotice("残しました。明日、定着チェックで出会えます")
+                now = System.currentTimeMillis()
+            },
+            onEdit = { body, q, a -> store.editBody(detailMemo.id, body, q, a) },
+            onToggleLowPriority = { lowPriority ->
+                val snapshot = detailMemo
+                store.setLowPriority(detailMemo.id, lowPriority)
+                detailId = null
+                now = System.currentTimeMillis()
+                if (lowPriority) {
+                    showNotice("「いつかやればいい」に下げました", "元に戻す") {
+                        store.restoreSnapshot(snapshot)
+                    }
+                } else {
+                    showNotice("「そろそろやろう」に戻しました", "元に戻す") {
+                        store.restoreSnapshot(snapshot)
+                    }
+                }
             },
             onDeleteNow = {
                 detailId = null
@@ -256,7 +240,6 @@ fun UroboeApp(store: MemoStore) {
         floatingActionButton = {
             FloatingActionButton(
                 onClick = { writeOpen = true },
-                // v0.3.3 デザイン整備：形の言語を「ボタンは全丸」に合わせ、FABも円形にする
                 shape = CircleShape,
                 containerColor = Palette.Pink,
                 contentColor = Color.White,
@@ -265,13 +248,33 @@ fun UroboeApp(store: MemoStore) {
     ) { padding ->
         Box(Modifier.padding(padding).fillMaxSize()) {
             SingleScreen(
-                data = data, now = now, store = store,
+                data = data,
+                now = now,
                 onOpenDetail = { detailId = it },
-                onConfirmDelete = { confirmDeleteId = it },
+                onMoveToSomeday = { memo ->
+                    store.setLowPriority(memo.id, true)
+                    now = System.currentTimeMillis()
+                    showNotice("「いつかやればいい」に下げました", "元に戻す") {
+                        store.restoreSnapshot(memo)
+                    }
+                },
+                onMoveToActive = { memo ->
+                    store.setLowPriority(memo.id, false)
+                    now = System.currentTimeMillis()
+                    showNotice("「そろそろやろう」に戻しました", "元に戻す") {
+                        store.restoreSnapshot(memo)
+                    }
+                },
+                onSwipeDelete = { memo ->
+                    store.deleteNow(memo.id)
+                    now = System.currentTimeMillis()
+                    showNotice("メモを削除しました", "元に戻す") {
+                        store.restoreSnapshot(memo)
+                    }
+                },
                 onShowHelp = { showOnboarding = true },
                 onWipe = { confirmWipe = true },
                 onAbout = { showAbout = true },
-                // v0.3.4（見直しY-2）：控えの書き出しは共有シートへ（端末内完結の範囲内）
                 onExport = {
                     val send = Intent(Intent.ACTION_SEND).apply {
                         type = "text/plain"
@@ -280,20 +283,48 @@ fun UroboeApp(store: MemoStore) {
                     }
                     context.startActivity(Intent.createChooser(send, "データの控えを送る"))
                 },
-                onNotice = { showNotice(it) },
             )
-            notice?.let { text ->
+            notice?.let { current ->
                 Surface(
-                    modifier = Modifier.align(Alignment.TopCenter).padding(top = 10.dp),
+                    modifier = Modifier.align(Alignment.TopCenter).padding(top = 10.dp, start = 16.dp, end = 16.dp),
                     shape = RoundedCornerShape(999.dp),
                     color = Palette.PinkBg,
-                    shadowElevation = 2.dp,
+                    shadowElevation = 3.dp,
                 ) {
-                    Text(
-                        text, color = Palette.Pink, fontWeight = FontWeight.Bold,
-                        fontSize = 13.5.sp,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(
+                            start = 16.dp,
+                            end = if (current.onUndo != null) 8.dp else 16.dp,
+                            top = 6.dp,
+                            bottom = 6.dp,
+                        ),
+                    ) {
+                        Text(
+                            current.text,
+                            color = Palette.Pink,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                        )
+                        if (current.undoLabel != null && current.onUndo != null) {
+                            Spacer(Modifier.width(6.dp))
+                            TextButton(
+                                onClick = {
+                                    current.onUndo.invoke()
+                                    notice = null
+                                    now = System.currentTimeMillis()
+                                },
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                            ) {
+                                Text(
+                                    current.undoLabel,
+                                    color = Palette.Pink,
+                                    fontWeight = FontWeight.Black,
+                                    fontSize = 13.sp,
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -303,11 +334,11 @@ fun UroboeApp(store: MemoStore) {
         AlertDialog(
             onDismissRequest = { confirmDeleteId = null },
             containerColor = Palette.CardWhite,
-            title = { Text("このメモを消しますか？") },
-            text = { Text("余韻を経ずに、すぐに完全に消えます。元に戻せません。") },
+            title = { Text("このメモを削除しますか？") },
+            text = { Text("一覧から完全に消えます。元に戻せません。") },
             confirmButton = {
                 TextButton(onClick = { store.deleteNow(id); confirmDeleteId = null }) {
-                    Text("消す", color = Palette.Orange)
+                    Text("削除する", color = Palette.Orange)
                 }
             },
             dismissButton = {
@@ -339,7 +370,7 @@ fun UroboeApp(store: MemoStore) {
             containerColor = Palette.CardWhite,
             title = { Text("うろぼえ について") },
             text = {
-                Text("メモを不要にするメモ帳。\n覚えたいものだけ残る、消えていくメモアプリ。\nバージョン 0.3.10\n\n期限を切るほどではない「いつかやろう」のためのメモ帳。忘れかけた頃に顔を出して、「いつか」を「そろそろ」に変えていきます。\n\n書いたメモは忘れかけた頃にまた顔を出し、「残す」を押したものだけが残ります。押さなかったものは30日で消え、7日間だけ「余韻」から戻せます。データはこの端末の中だけにあります。\n\nアプリを削除（アンインストール）すると、メモもすべて消えます。大事なメモは、画面いちばん下の「データを書き出す」から控えを取っておけます。")
+                Text("メモを不要にするメモ帳。\nバージョン 0.4.0\n\n期限を切るほどではない「いつかやろう」のためのメモ帳。書いたメモは勝手に消えず、忘却曲線に沿って忘れかけたものが上へ浮かびます。\n\nまだやらなくていいものは、横にスワイプして「いつかやればいい」へ下げられます。データはこの端末の中だけにあります。\n\nアプリを削除（アンインストール）すると、メモもすべて消えます。大事なメモは、画面いちばん下の「データを書き出す」から控えを取っておけます。")
             },
             confirmButton = {
                 TextButton(onClick = { showAbout = false }) { Text("閉じる") }
@@ -361,93 +392,114 @@ private fun SectionTitle(text: String, color: Color = Palette.Pink, sub: String?
 }
 
 @Composable
-private fun RemainingBar(remaining: Int) {
-    LinearProgressIndicator(
-        progress = { remaining.coerceIn(0, 30) / 30f },
-        modifier = Modifier.fillMaxWidth().height(5.dp).clip(RoundedCornerShape(3.dp)),
-        color = Palette.Pink,
-        trackColor = Palette.Line,
-    )
-}
-
-@Composable
 private fun MemoCardShell(
     onClick: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+    containerColor: Color = Palette.CardWhite,
     content: @Composable () -> Unit,
 ) {
     Card(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp)
+        modifier = modifier.fillMaxWidth().padding(vertical = 5.dp)
             .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = Palette.CardWhite),
+        colors = CardDefaults.cardColors(containerColor = containerColor),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
     ) {
         Column(Modifier.padding(13.dp)) { content() }
     }
 }
 
-// ---------------- 単一画面（v0.2〜：タブ廃止、1スクロールに全部） ----------------
-// 並びは上から「今日やること → 流れるもの → 静かなもの」。
-// 空のセクションは見出しごと出さない。
+@Composable
+private fun SwipeableMemoWrapper(
+    enableStartToEnd: Boolean,
+    enableEndToStart: Boolean,
+    startToEndLabel: String,
+    startToEndBg: Color,
+    startToEndColor: Color,
+    endToStartLabel: String,
+    endToStartBg: Color,
+    endToStartColor: Color,
+    onStartToEnd: () -> Unit,
+    onEndToStart: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    val currentOnStartToEnd by rememberUpdatedState(onStartToEnd)
+    val currentOnEndToStart by rememberUpdatedState(onEndToStart)
+    val dismissState = rememberSwipeToDismissBoxState(
+        confirmValueChange = { value ->
+            when (value) {
+                SwipeToDismissBoxValue.StartToEnd -> enableStartToEnd
+                SwipeToDismissBoxValue.EndToStart -> enableEndToStart
+                SwipeToDismissBoxValue.Settled -> false
+            }
+        },
+        positionalThreshold = { totalDistance -> totalDistance * 0.35f },
+    )
+    LaunchedEffect(dismissState.currentValue) {
+        when (dismissState.currentValue) {
+            SwipeToDismissBoxValue.StartToEnd -> {
+                currentOnStartToEnd()
+                dismissState.snapTo(SwipeToDismissBoxValue.Settled)
+            }
+            SwipeToDismissBoxValue.EndToStart -> {
+                currentOnEndToStart()
+                dismissState.snapTo(SwipeToDismissBoxValue.Settled)
+            }
+            SwipeToDismissBoxValue.Settled -> Unit
+        }
+    }
+    SwipeToDismissBox(
+        state = dismissState,
+        modifier = modifier,
+        enableDismissFromStartToEnd = enableStartToEnd,
+        enableDismissFromEndToStart = enableEndToStart,
+        backgroundContent = {
+            val dir = dismissState.dismissDirection
+            val isStartToEnd = dir == SwipeToDismissBoxValue.StartToEnd
+            val bg = when (dir) {
+                SwipeToDismissBoxValue.StartToEnd -> startToEndBg
+                SwipeToDismissBoxValue.EndToStart -> endToStartBg
+                SwipeToDismissBoxValue.Settled -> Color.Transparent
+            }
+            val fg = if (isStartToEnd) startToEndColor else endToStartColor
+            val label = if (isStartToEnd) startToEndLabel else endToStartLabel
+            val align = if (isStartToEnd) Alignment.CenterStart else Alignment.CenterEnd
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .padding(vertical = 5.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(bg)
+                    .padding(horizontal = 20.dp),
+                contentAlignment = align,
+            ) {
+                if (dir != SwipeToDismissBoxValue.Settled) {
+                    Text(label, color = fg, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        },
+        content = { content() },
+    )
+}
+
+// ---------------- 単一画面（全件一覧：上段＝忘却曲線順、下段＝いつかやればいい） ----------------
 
 @Composable
 fun SingleScreen(
     data: StoreData,
     now: Long,
-    store: MemoStore,
     onOpenDetail: (Long) -> Unit,
-    onConfirmDelete: (Long) -> Unit,
+    onMoveToSomeday: (Memo) -> Unit,
+    onMoveToActive: (Memo) -> Unit,
+    onSwipeDelete: (Memo) -> Unit,
     onShowHelp: () -> Unit,
     onWipe: () -> Unit,
     onAbout: () -> Unit,
     onExport: () -> Unit,
-    onNotice: (String) -> Unit,
 ) {
-    // v0.3.2：日付は端末タイムゾーンのオフセットで数える（UTC基準の朝9時切替を防ぐ）
-    val dayOffset = java.util.TimeZone.getDefault().getOffset(now).toLong()
-    val today = MemoLogic.epochDay(now, dayOffset)
-    val candidates = remember(data.memos, now) { MemoLogic.resurfaceCandidates(data.memos, now, dayOffset) }
-    var sessionIds by remember { mutableStateOf(emptySet<Long>()) }
-    var sessionDay by remember { mutableStateOf(Long.MIN_VALUE) }
-    // v0.3.2 修正：セッション表示は「今日」だけに効かせる（前日の再会が翌日も残る不具合）
-    val effectiveSessionIds = if (sessionDay == today) sessionIds else emptySet()
-    LaunchedEffect(candidates.map { it.id }, today) {
-        if (sessionDay != today) {
-            sessionDay = today
-            sessionIds = emptySet()
-        }
-        val newIds = candidates.map { it.id }.filterNot { it in sessionIds }
-        if (newIds.isNotEmpty()) {
-            sessionIds = sessionIds + newIds
-            store.consumeCheckpoints(newIds)
-        }
-    }
-    val candidateIds = candidates.map { it.id }.toSet()
-    val resurface = data.memos.filter {
-        it.state == MemoState.FLOWING && (it.id in effectiveSessionIds || it.id in candidateIds)
-    }.sortedBy { MemoLogic.remainingDays(it, now) }
-    val resurfaceIds = resurface.map { it.id }.toSet()
-
-    // v0.3 A1：再会に出ているメモは「流れるメモ」から外す（同一メモの二重表示をなくす）。
-    // 「そろそろ消える」は独立セクションをやめ、流れるメモ内の強調カードへ統合した。
-    val flowingAll = data.memos.filter { it.state == MemoState.FLOWING }
-    val flowing = flowingAll.filter { it.id !in resurfaceIds }
-        .sortedByDescending { it.createdAt }
-    val due = remember(data.memos, now) { MemoLogic.dueLearning(data.memos, now) }
-    val learning = data.memos.filter { it.state == MemoState.LEARNING }
-    val currentCheck = due.firstOrNull()
-    val mastered = data.memos.filter { it.state == MemoState.MASTERED }
-        .sortedByDescending { it.updatedAt }
-    val glow = data.memos.filter { it.state == MemoState.AFTERGLOW }
-        .sortedByDescending { it.afterglowAt ?: 0L }
-
-    val cal = Calendar.getInstance().apply {
-        set(Calendar.DAY_OF_MONTH, 1); set(Calendar.HOUR_OF_DAY, 0)
-        set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
-    }
-    val monthStart = cal.timeInMillis
-    val masteredThisMonth = data.masteredEvents.count { it >= monthStart }
-    val deletedThisMonth = data.deletedEvents.count { it >= monthStart }
+    val activeMemos = remember(data.memos, now) { MemoLogic.sortActiveByForgettingCurve(data.memos, now) }
+    val somedayMemos = remember(data.memos) { MemoLogic.sortSomeday(data.memos) }
 
     LazyColumn(
         Modifier.fillMaxSize().padding(horizontal = 16.dp),
@@ -471,74 +523,10 @@ fun SingleScreen(
             }
         }
 
-        // 今日の再会
-        if (resurface.isNotEmpty()) {
-            item { SectionTitle("今日の再会", sub = "忘れかけの頃に ${resurface.size}件") }
-            items(resurface, key = { "re_${it.id}" }) { memo ->
-                val remaining = MemoLogic.remainingDays(memo, now)
-                // v0.3 A2：回数は消化後の checkpointsDone そのもの（消化=1回に1つ進む）。
-                val serveNo = memo.checkpointsDone.coerceAtLeast(1)
-                MemoCardShell(onClick = { onOpenDetail(memo.id) }) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text(
-                            "${MemoLogic.ageDays(memo, now)}日前に書いた ・ ${serveNo}回目の再会",
-                            fontSize = 11.5.sp, color = Palette.InkSoft,
-                        )
-                        Text(
-                            "残り${remaining}日", fontSize = 11.5.sp,
-                            color = if (remaining <= 2) Palette.Orange else Palette.InkSoft,
-                            fontWeight = if (remaining <= 2) FontWeight.Bold else FontWeight.Normal,
-                        )
-                    }
-                    Spacer(Modifier.height(5.dp))
-                    Column(Modifier.alpha(MemoLogic.opacityFor(MemoLogic.ageDays(memo, now)))) {
-                        Text(memo.title, fontWeight = FontWeight.Bold, fontSize = 15.5.sp, color = Palette.Ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        // v0.3 B5：クイズ形式の再会では答えを出さない（思い出す練習を守る）
-                        if (!memo.isQuiz && memo.displayBody.isNotBlank() && memo.displayBody != memo.title) {
-                            // v0.3.2：長い本文でカードが巨大化しないよう行数を絞る（全文は詳細で読める）
-                            Text(memo.displayBody, fontSize = 13.sp, color = Palette.InkSoft, maxLines = 6, overflow = TextOverflow.Ellipsis)
-                        }
-                        if (memo.isQuiz) {
-                            Text("クイズ形式 ・ 答えはタップで開いて確認", fontSize = 11.5.sp, color = Palette.InkSoft)
-                        }
-                    }
-                    // v0.3.4（見直しY-4）：［見た］と［流す］は完全に同一動作だったため［見た］に統合。
-                    // 再会の場のボタンは1つだけにし、残す判断は詳細側に置く（v0.3.1の方針は維持）。
-                    Button(
-                        onClick = { sessionIds = sessionIds - memo.id },
-                        colors = ButtonDefaults.buttonColors(containerColor = Palette.Pink),
-                        shape = RoundedCornerShape(999.dp),
-                        modifier = Modifier.fillMaxWidth().padding(top = 9.dp),
-                    ) {
-                        EyeIcon(Color.White)
-                        Spacer(Modifier.width(6.dp))
-                        Text("見た", fontSize = 13.5.sp)
-                    }
-                    Spacer(Modifier.height(9.dp))
-                    RemainingBar(remaining)
-                }
-            }
-        }
-
-        // 定着チェック（到来分があるときだけ）
-        if (currentCheck != null) {
-            item { SectionTitle("定着チェック", color = Palette.Purple, sub = "あと ${due.size}件") }
+        if (data.memos.isEmpty()) {
             item {
-                LearningCard(
-                    memo = currentCheck,
-                    onAnswer = { remembered -> store.answerLearning(currentCheck.id, remembered) },
-                )
-            }
-        }
-
-        // 流れるメモ（残り2日以内は「そろそろ消える」を統合した強調カードになる）
-        item { SectionTitle("流れるメモ", color = Palette.InkSoft, sub = "新しい順") }
-        if (flowingAll.isEmpty()) {
-            item {
-                // v0.3.5（本人の指摘「文字ばかりで見づらい」）：空状態は文章でなく、
-                // 薄れモチーフ（オンボーディングと共通の図形）＋短い2行で見せる。
                 Column(
-                    Modifier.fillMaxWidth().padding(top = 64.dp, bottom = 20.dp),
+                    Modifier.fillMaxWidth().padding(top = 84.dp, bottom = 24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Column(
@@ -554,118 +542,154 @@ fun SingleScreen(
                         }
                     }
                     Spacer(Modifier.height(22.dp))
-                    Text("まだ何も流れていません", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
+                    Text("まだメモがありません", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
                     Spacer(Modifier.height(5.dp))
-                    Text("右下の＋から、「いつかやろう」を1行書いてみて", fontSize = 13.5.sp, color = Palette.InkSoft)
+                    Text("右下の＋から、「そろそろやろう」を1行書いてみて", fontSize = 13.5.sp, color = Palette.InkSoft)
                 }
             }
         } else {
-            items(flowing, key = { "fl_${it.id}" }) { memo ->
-                val remaining = MemoLogic.remainingDays(memo, now)
-                val urgent = remaining <= 2
-                MemoCardShell(onClick = { onOpenDetail(memo.id) }) {
-                    // v0.3 A1/M-1：救う場面のカードは薄れさせない（濃さ100%）
-                    Column(Modifier.alpha(if (urgent) 1f else MemoLogic.opacityFor(MemoLogic.ageDays(memo, now)))) {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("${MemoLogic.ageDays(memo, now)}日前", fontSize = 11.5.sp, color = Palette.InkSoft)
-                            Text(
-                                if (urgent) "あと${remaining}日で消える" else "残り${remaining}日",
-                                fontSize = 11.5.sp,
-                                color = if (urgent) Palette.Orange else Palette.InkSoft,
-                                fontWeight = if (urgent) FontWeight.Bold else FontWeight.Normal,
-                            )
-                        }
-                        Spacer(Modifier.height(4.dp))
-                        Text(memo.title, fontSize = 15.sp, color = Palette.Ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    }
-                    if (urgent) {
-                        Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(
-                                onClick = {
-                                    store.update({ MemoLogic.startLearning(it, System.currentTimeMillis()) }, memo.id)
-                                    onNotice("残しました。明日、定着チェックで出会えます")
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = Palette.Pink),
-                                shape = RoundedCornerShape(999.dp),
-                            ) { Text("残す", fontSize = 13.5.sp) }
-                            OutlinedButton(
-                                onClick = { onConfirmDelete(memo.id) },
-                                shape = RoundedCornerShape(999.dp),
-                            ) { Text("このまま消す", fontSize = 13.5.sp, color = Palette.InkSoft) }
-                        }
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    RemainingBar(remaining)
-                }
-            }
-        }
-
-        // 定着中（静かな1行リスト）
-        if (learning.isNotEmpty()) {
-            item { SectionTitle("定着中", color = Palette.Purple, sub = "${learning.size}件") }
-            items(learning.sortedBy { it.nextDueAt ?: Long.MAX_VALUE }, key = { "ln_${it.id}" }) { memo ->
-                Row(
-                    // v0.3 B2：行タップで詳細（本文確認・編集）を開ける
-                    Modifier.fillMaxWidth().clickable { onOpenDetail(memo.id) }.padding(vertical = 5.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(memo.title, fontSize = 14.sp, color = Palette.Ink, modifier = Modifier.weight(1f))
-                    Text(
-                        "次は ${memo.nextDueAt?.let { fmtDate(it) } ?: "-"}",
-                        fontSize = 11.5.sp, color = Palette.InkSoft,
-                    )
-                    TextButton(onClick = {
-                        store.update({ MemoLogic.stopLearning(it, System.currentTimeMillis()) }, memo.id)
-                        store.refresh()
-                    }) { Text("やめる", fontSize = 12.sp, color = Palette.InkSoft) }
-                }
-            }
-        }
-
-        // 余韻（消えたメモ）
-        if (glow.isNotEmpty()) {
-            item { SectionTitle("余韻", color = Palette.InkSoft, sub = "消えたメモ ・ 7日間だけ戻せる") }
-            items(glow, key = { "gl_${it.id}" }) { memo ->
-                Row(
-                    Modifier.fillMaxWidth().padding(vertical = 5.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(memo.title, fontSize = 14.sp, color = Palette.InkSoft, modifier = Modifier.weight(1f))
-                    Text("あと${MemoLogic.afterglowRemainingDays(memo, now)}日", fontSize = 11.5.sp, color = Palette.InkSoft)
-                    TextButton(onClick = { store.update({ MemoLogic.revive(it, System.currentTimeMillis()) }, memo.id) }) {
-                        Text("復活", fontSize = 12.5.sp, color = Palette.Pink)
-                    }
-                }
-            }
-        }
-
-        // 身についたメモ＋今月の成果（数字とタイトルだけ、静かに）
-        // v0.3 B6：卒業0件のときは見出しごと出さない（空セクション規則に統一）
-        if (mastered.isNotEmpty()) {
-            item { SectionTitle("身についたメモ", color = Palette.Purple, sub = "${mastered.size}件") }
-            items(mastered.take(10), key = { "ms_${it.id}" }) { memo ->
-                Text(
-                    memo.title, fontSize = 14.sp, color = Palette.InkSoft,
-                    // v0.3 B2：卒業メモもタップで本文を確認できる（閲覧のみ）
-                    modifier = Modifier.fillMaxWidth().clickable { onOpenDetail(memo.id) }.padding(vertical = 3.dp),
-                )
-            }
-            if (mastered.size > 10) {
-                item { Text("ほか ${mastered.size - 10}件", fontSize = 12.5.sp, color = Palette.InkSoft) }
-            }
-        }
-
-        // v0.3.4（見直しY-3）：今月の成果は卒業メモの有無から切り離して出す。
-        // 手放すだけが進んでいる人こそ「手放した件数」の肯定が要る（仕様§1）。
-        if (masteredThisMonth > 0 || deletedThisMonth > 0) {
+            // 上段：そろそろやろう（忘却曲線順）
             item {
-                Text(
-                    "今月：身についた ${masteredThisMonth}件 ／ 手放した ${deletedThisMonth}件 — どちらも頭が軽くなった証拠",
-                    fontSize = 12.5.sp, color = Palette.InkSoft,
-                    modifier = Modifier.padding(top = 8.dp),
+                SectionTitle(
+                    text = "そろそろやろう",
+                    color = Palette.Pink,
+                    sub = if (activeMemos.isNotEmpty()) "横スワイプで下へ ・ ${activeMemos.size}件" else "0件",
                 )
+            }
+            if (activeMemos.isEmpty()) {
+                item {
+                    Text(
+                        "いま上段にあるメモはありません。右下の＋で追加するか、下から戻せます。",
+                        fontSize = 13.sp,
+                        color = Palette.InkSoft,
+                        modifier = Modifier.padding(vertical = 10.dp),
+                    )
+                }
+            } else {
+                items(activeMemos, key = { "active_${it.id}" }) { memo ->
+                    val isDue = MemoLogic.isDueForReview(memo, now)
+                    SwipeableMemoWrapper(
+                        modifier = Modifier.animateItem(),
+                        enableStartToEnd = true,
+                        enableEndToStart = true,
+                        startToEndLabel = "いつかやればいいへ ↓",
+                        startToEndBg = Palette.Line,
+                        startToEndColor = Palette.InkSoft,
+                        endToStartLabel = "↓ いつかやればいいへ",
+                        endToStartBg = Palette.Line,
+                        endToStartColor = Palette.InkSoft,
+                        onStartToEnd = { onMoveToSomeday(memo) },
+                        onEndToStart = { onMoveToSomeday(memo) },
+                    ) {
+                        MemoCardShell(onClick = { onOpenDetail(memo.id) }) {
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    MemoLogic.elapsedLabel(memo.createdAt, now),
+                                    fontSize = 11.5.sp,
+                                    color = Palette.InkSoft,
+                                )
+                                if (isDue) {
+                                    Box(
+                                        Modifier
+                                            .clip(RoundedCornerShape(999.dp))
+                                            .background(Palette.PinkBg)
+                                            .padding(horizontal = 8.dp, vertical = 2.dp),
+                                    ) {
+                                        Text(
+                                            "忘れかけ",
+                                            fontSize = 10.5.sp,
+                                            color = Palette.Pink,
+                                            fontWeight = FontWeight.Bold,
+                                        )
+                                    }
+                                }
+                            }
+                            Spacer(Modifier.height(5.dp))
+                            Text(
+                                memo.title,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.5.sp,
+                                color = Palette.Ink,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            if (!memo.isQuiz && memo.displayBody.isNotBlank() && memo.displayBody != memo.title) {
+                                Spacer(Modifier.height(3.dp))
+                                Text(
+                                    memo.displayBody,
+                                    fontSize = 13.sp,
+                                    color = Palette.InkSoft,
+                                    maxLines = 3,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            if (memo.isQuiz) {
+                                Spacer(Modifier.height(3.dp))
+                                Text(
+                                    "クイズ形式 ・ タップで答えを見る",
+                                    fontSize = 11.5.sp,
+                                    color = Palette.InkSoft,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 下段：いつかやればいい（優先度を下げたメモ）
+            if (somedayMemos.isNotEmpty()) {
+                item {
+                    SectionTitle(
+                        text = "いつかやればいい",
+                        color = Palette.InkSoft,
+                        sub = "右で戻す ・ 左で削除 ・ ${somedayMemos.size}件",
+                    )
+                }
+                items(somedayMemos, key = { "someday_${it.id}" }) { memo ->
+                    SwipeableMemoWrapper(
+                        modifier = Modifier.animateItem(),
+                        enableStartToEnd = true,
+                        enableEndToStart = true,
+                        startToEndLabel = "↑ そろそろやろうへ戻す",
+                        startToEndBg = Palette.PinkBg,
+                        startToEndColor = Palette.Pink,
+                        endToStartLabel = "削除",
+                        endToStartBg = Palette.OrangeBg,
+                        endToStartColor = Palette.Orange,
+                        onStartToEnd = { onMoveToActive(memo) },
+                        onEndToStart = { onSwipeDelete(memo) },
+                    ) {
+                        MemoCardShell(
+                            onClick = { onOpenDetail(memo.id) },
+                            modifier = Modifier.alpha(0.72f),
+                        ) {
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    memo.title,
+                                    fontSize = 14.5.sp,
+                                    color = Palette.Ink,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    MemoLogic.elapsedLabel(memo.createdAt, now),
+                                    fontSize = 11.sp,
+                                    color = Palette.InkSoft,
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -673,11 +697,8 @@ fun SingleScreen(
         item {
             Spacer(Modifier.height(26.dp))
             Box(Modifier.fillMaxWidth().height(1.dp).background(Palette.Line))
-            // v0.3.5 修正：横並び3つでは「データをすべて消す」が画面外へはみ出したため、縦並びに変更
             Column(Modifier.fillMaxWidth().padding(top = 6.dp)) {
-                // v0.3.3 デザイン整備：「使い方」はヘッダーと重複していたためフッターからは外した
                 TextButton(onClick = onAbout) { Text("このアプリについて", fontSize = 12.5.sp, color = Palette.InkSoft) }
-                // v0.3.4（見直しY-2）：控えの書き出し導線をフッターに置く
                 TextButton(onClick = onExport) { Text("データを書き出す", fontSize = 12.5.sp, color = Palette.InkSoft) }
                 TextButton(onClick = onWipe) { Text("データをすべて消す", fontSize = 12.5.sp, color = Palette.Orange) }
             }
@@ -685,112 +706,28 @@ fun SingleScreen(
     }
 }
 
-@Composable
-private fun LearningCard(memo: Memo, onAnswer: (Boolean) -> Unit) {
-    var revealed by remember(memo.id) { mutableStateOf(false) }
-    Card(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = Palette.CardWhite),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-    ) {
-        Column(Modifier.padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                MemoLogic.STAGE_INTERVAL_DAYS.forEachIndexed { i, days ->
-                    val bg = when {
-                        i < memo.stage -> Palette.PurpleBg
-                        i == memo.stage -> Palette.Purple
-                        else -> Palette.Line
-                    }
-                    val fg = when {
-                        i < memo.stage -> Palette.Purple
-                        i == memo.stage -> Color.White
-                        else -> Palette.InkSoft
-                    }
-                    Box(
-                        Modifier.clip(RoundedCornerShape(999.dp)).background(bg)
-                            .padding(horizontal = 8.dp, vertical = 3.dp)
-                    ) {
-                        Text(
-                            if (i < memo.stage) "${days}日 ✓" else if (i == memo.stage) "${days}日・今ここ" else "${days}日",
-                            fontSize = 10.5.sp, color = fg,
-                            fontWeight = if (i == memo.stage) FontWeight.Bold else FontWeight.Normal,
-                        )
-                    }
-                }
-            }
-            Spacer(Modifier.height(16.dp))
-            if (memo.isQuiz) {
-                Text("ヒント", fontSize = 11.5.sp, color = Palette.InkSoft, letterSpacing = 1.sp)
-                Text(
-                    memo.question ?: "", fontSize = 19.sp, fontWeight = FontWeight.Bold,
-                    color = Palette.Ink, modifier = Modifier.padding(vertical = 8.dp),
-                )
-                if (!revealed) {
-                    TextButton(onClick = { revealed = true }) { Text("タップで答えを表示", color = Palette.Pink) }
-                } else {
-                    Box(Modifier.fillMaxWidth().height(1.dp).background(Palette.Line))
-                    Text(
-                        memo.answer ?: "", fontSize = 17.sp, fontWeight = FontWeight.Bold,
-                        color = Palette.Pink, modifier = Modifier.padding(top = 10.dp),
-                    )
-                }
-            } else {
-                Text(
-                    memo.body, fontSize = 17.sp, fontWeight = FontWeight.Medium, color = Palette.Ink,
-                )
-            }
-            Spacer(Modifier.height(14.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(
-                    onClick = { onAnswer(true) },
-                    enabled = revealed || !memo.isQuiz,
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(containerColor = Palette.Pink),
-                    shape = RoundedCornerShape(999.dp),
-                ) { Text("覚えてた") }
-                OutlinedButton(
-                    onClick = { onAnswer(false) },
-                    enabled = revealed || !memo.isQuiz,
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(999.dp),
-                ) { Text("あやしい", color = Palette.Orange) }
-            }
-        }
-    }
-}
-
-// ---------------- 書く（v0.3.1〜 全画面／v0.3.5〜 Google Keep風の枠なし） ----------------
+// ---------------- 書く（全画面・Google Keep風の枠なし） ----------------
 
 @Composable
 fun WriteScreen(onDismiss: () -> Unit, onSave: (String, String?, String?) -> Unit) {
-    // v0.3.6（遷移レビュー）：下書きは再生成（回転など）でも保持する
     var body by rememberSaveable { mutableStateOf("") }
     var quiz by rememberSaveable { mutableStateOf(false) }
     var question by rememberSaveable { mutableStateOf("") }
     var answer by rememberSaveable { mutableStateOf("") }
     var confirmDiscard by remember { mutableStateOf(false) }
-    // v0.3.8（安定性レビュー）：保存の連打で同じメモが二重に登録されないよう、送信は1回だけ
     var submitted by remember { mutableStateOf(false) }
     val canSave = if (quiz) question.isNotBlank() && answer.isNotBlank() else body.isNotBlank()
-    // v0.3.6（遷移レビュー）：この画面はダイアログでなく画面差し替えのため、戻る操作を受け取る
-    // 仕組みが無く、システムの戻るでアプリが終了して下書きも消えていた。戻る＝画面の［←］と
-    // 同じ扱いにし、書いたものがあるときは破棄の確認を挟む。
     val hasDraft = body.isNotBlank() || question.isNotBlank() || answer.isNotBlank()
     fun tryDismiss() {
         if (hasDraft) confirmDiscard = true else onDismiss()
     }
     BackHandler { tryDismiss() }
-    // v0.3.5：開いたらすぐ書けるよう、入力欄へ自動でフォーカスする（Keepと同じ所作）
     val focusRequester = remember { FocusRequester() }
     LaunchedEffect(quiz) { runCatching { focusRequester.requestFocus() } }
     Surface(color = Palette.Paper, modifier = Modifier.fillMaxSize()) {
-        // v0.3.2 修正：全画面でもステータスバー／ナビバー／キーボードに被らないよう余白を取る
         Column(
             Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding().padding(horizontal = 20.dp)
         ) {
-            // v0.3.5（本人の指示・Google Keep参照）：道具は上部バーの「戻る」と「保存」だけに減らす。
-            // 見出し文と枠線フィールドをやめ、画面そのものを紙として書く。
             Row(
                 Modifier.fillMaxWidth().padding(top = 4.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -856,7 +793,6 @@ fun WriteScreen(onDismiss: () -> Unit, onSave: (String, String?, String?) -> Uni
                         inner()
                     },
                 )
-                // 上限が近いときだけ残り字数を出す（無言の切捨てを防ぐ）
                 if (body.length >= 900) {
                     Text(
                         "あと${1000 - body.length}字まで書けます",
@@ -865,7 +801,6 @@ fun WriteScreen(onDismiss: () -> Unit, onSave: (String, String?, String?) -> Uni
                     )
                 }
             }
-            // 下部バー：クイズ切替はチップ1つに小さく置く
             Row(
                 Modifier.fillMaxWidth().padding(top = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -886,7 +821,7 @@ fun WriteScreen(onDismiss: () -> Unit, onSave: (String, String?, String?) -> Uni
                 }
             }
             Text(
-                "分類はしなくてOK。このメモは明日・3日後・7日後にまた顔を出して、30日後に消えます。",
+                "分類はしなくてOK。忘れかけた頃に上へ浮かびます。後回しにしたいものはスワイプで下げられます。",
                 fontSize = 11.5.sp, color = Palette.InkSoft,
                 modifier = Modifier.padding(top = 8.dp, bottom = 12.dp),
             )
@@ -910,33 +845,29 @@ fun WriteScreen(onDismiss: () -> Unit, onSave: (String, String?, String?) -> Uni
     }
 }
 
-// ---------------- メモを開く（v0.3.9〜：詳細ダイアログを廃止し、書く画面と同じ全画面に） ----------------
-// 本人の指示：メモをタップしたら「メモの詳細」ダイアログでなく、作成時と同じ見た目の
-// 全画面を開く。違いは下部に［残す］などの操作ボタンを固定表示すること。
-// 保存ボタンはなく、入力のたびに自動保存される。開いている間は［戻す］で編集を戻せる。
+// ---------------- メモを開く（全画面・自動保存・優先度切替／削除） ----------------
 
 @Composable
 fun EditScreen(
     memo: Memo,
-    now: Long,
+    onOpened: () -> Unit,
     onBack: () -> Unit,
     onEdit: (String, String?, String?) -> Unit,
-    onMemorize: () -> Unit,
+    onToggleLowPriority: (Boolean) -> Unit,
     onDeleteNow: () -> Unit,
 ) {
     var body by remember(memo.id) { mutableStateOf(memo.body) }
     var question by remember(memo.id) { mutableStateOf(memo.question ?: "") }
     var answer by remember(memo.id) { mutableStateOf(memo.answer ?: "") }
-    // v0.3.8（安定性レビュー）：［残す］の連打で処理が二重に走らないよう、送信は1回だけ
-    var submitted by remember { mutableStateOf(false) }
-    val editable = memo.state != MemoState.MASTERED
-    // 編集の履歴（［戻す］用）。「同じ欄を続けて打つ間は1かたまり」として、
-    // 欄の切り替えか1秒の間隔で区切る。戻した内容も自動保存される。
+    var quizAnswerRevealed by remember(memo.id) { mutableStateOf(false) }
     var undoStack by remember(memo.id) { mutableStateOf<List<Triple<String, String, String>>>(emptyList()) }
     var lastField by remember(memo.id) { mutableStateOf(-1) }
     var lastPushAt by remember(memo.id) { mutableStateOf(0L) }
+
+    val currentOnOpened by rememberUpdatedState(onOpened)
+    LaunchedEffect(memo.id) { currentOnOpened() }
+
     fun persist(b: String, q: String, a: String) {
-        // 空の内容は保存しない（最後の有効な内容を残す）
         if (memo.isQuiz) {
             if (q.isNotBlank() && a.isNotBlank()) onEdit("", q, a)
         } else if (b.isNotBlank()) {
@@ -958,62 +889,36 @@ fun EditScreen(
         lastField = -1
         persist(prev.first, prev.second, prev.third)
     }
-    // 自動保存なので、戻る操作はそのままホームへ帰るだけでよい（失われるものはない）
     BackHandler { onBack() }
     val focusRequester = remember { FocusRequester() }
-    LaunchedEffect(memo.id) { if (editable) runCatching { focusRequester.requestFocus() } }
+    LaunchedEffect(memo.id) {
+        if (!memo.isQuiz) runCatching { focusRequester.requestFocus() }
+    }
     Surface(color = Palette.Paper, modifier = Modifier.fillMaxSize()) {
         Column(
             Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding().padding(horizontal = 20.dp)
         ) {
-            // 上部バー：書く画面と同じ並び（左に戻る、右に［戻す］）
             Row(
                 Modifier.fillMaxWidth().padding(top = 4.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 TextButton(onClick = onBack) { Text("←", fontSize = 20.sp, color = Palette.InkSoft) }
-                if (editable) {
-                    TextButton(onClick = { undo() }, enabled = undoStack.isNotEmpty()) {
-                        Text(
-                            "↩ 戻す", fontSize = 14.sp, fontWeight = FontWeight.Bold,
-                            color = if (undoStack.isNotEmpty()) Palette.Pink else Palette.InkSoft.copy(alpha = 0.45f),
-                        )
-                    }
+                TextButton(onClick = { undo() }, enabled = undoStack.isNotEmpty()) {
+                    Text(
+                        "↩ 戻す", fontSize = 14.sp, fontWeight = FontWeight.Bold,
+                        color = if (undoStack.isNotEmpty()) Palette.Pink else Palette.InkSoft.copy(alpha = 0.45f),
+                    )
                 }
             }
-            // 状態の1行（作成日・残り・再会回数・状態）
-            val info = buildString {
-                append("作成：${fmtDateFull(memo.createdAt)}")
-                if (memo.state == MemoState.FLOWING) append(" ・ 残り${MemoLogic.remainingDays(memo, now)}日")
-                append(" ・ 再会 ${memo.reunions}回")
-                append(" ・ 状態：")
-                append(
-                    when (memo.state) {
-                        MemoState.FLOWING -> "流れる"
-                        MemoState.LEARNING -> "定着中"
-                        MemoState.MASTERED -> "身についた"
-                        MemoState.AFTERGLOW -> "余韻"
-                    }
-                )
-            }
-            Text(info, fontSize = 12.sp, color = Palette.InkSoft, modifier = Modifier.padding(top = 2.dp, bottom = 10.dp))
-            if (!editable) {
-                // 身についたメモは閲覧のみ（仕様 §6.2）。書く画面と同じ紙の見た目で見せる。
-                if (memo.isQuiz) {
-                    Text(memo.question ?: "", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Palette.Ink, lineHeight = 27.sp)
-                    Box(Modifier.fillMaxWidth().padding(vertical = 14.dp).height(1.dp).background(Palette.Line))
-                    Text(memo.answer ?: "", fontSize = 16.5.sp, color = Palette.Ink, lineHeight = 26.sp)
-                } else {
-                    Text(memo.body, fontSize = 17.sp, color = Palette.Ink, lineHeight = 27.sp)
-                }
-                Spacer(Modifier.weight(1f))
-                Text(
-                    "身についたメモは、見るだけです。",
-                    fontSize = 11.5.sp, color = Palette.InkSoft,
-                    modifier = Modifier.padding(bottom = 12.dp),
-                )
-            } else if (memo.isQuiz) {
+            val statusText = if (memo.lowPriority) "いつかやればいい" else "そろそろやろう"
+            Text(
+                "作成：${fmtDateFull(memo.createdAt)} ・ $statusText",
+                fontSize = 12.sp,
+                color = Palette.InkSoft,
+                modifier = Modifier.padding(top = 2.dp, bottom = 10.dp),
+            )
+            if (memo.isQuiz) {
                 BasicTextField(
                     value = question,
                     onValueChange = { val v = it.take(1000); pushHistory(1); question = v; persist(body, v, answer) },
@@ -1028,19 +933,35 @@ fun EditScreen(
                     },
                 )
                 Box(Modifier.fillMaxWidth().padding(vertical = 14.dp).height(1.dp).background(Palette.Line))
-                BasicTextField(
-                    value = answer,
-                    onValueChange = { val v = it.take(1000); pushHistory(2); answer = v; persist(body, question, v) },
-                    textStyle = TextStyle(fontSize = 16.5.sp, color = Palette.Ink, lineHeight = 26.sp),
-                    cursorBrush = SolidColor(Palette.Pink),
-                    modifier = Modifier.fillMaxWidth().weight(1f),
-                    decorationBox = { inner ->
-                        if (answer.isEmpty()) {
-                            Text("答え", fontSize = 16.5.sp, color = Palette.InkSoft.copy(alpha = 0.55f))
+                if (!quizAnswerRevealed) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        contentAlignment = Alignment.TopStart,
+                    ) {
+                        OutlinedButton(
+                            onClick = { quizAnswerRevealed = true },
+                            shape = RoundedCornerShape(999.dp),
+                        ) {
+                            Text("タップで答えを表示・編集", color = Palette.Pink, fontSize = 13.5.sp)
                         }
-                        inner()
-                    },
-                )
+                    }
+                } else {
+                    BasicTextField(
+                        value = answer,
+                        onValueChange = { val v = it.take(1000); pushHistory(2); answer = v; persist(body, question, v) },
+                        textStyle = TextStyle(fontSize = 16.5.sp, color = Palette.Ink, lineHeight = 26.sp),
+                        cursorBrush = SolidColor(Palette.Pink),
+                        modifier = Modifier.fillMaxWidth().weight(1f),
+                        decorationBox = { inner ->
+                            if (answer.isEmpty()) {
+                                Text("答え", fontSize = 16.5.sp, color = Palette.InkSoft.copy(alpha = 0.55f))
+                            }
+                            inner()
+                        },
+                    )
+                }
             } else {
                 BasicTextField(
                     value = body,
@@ -1056,32 +977,31 @@ fun EditScreen(
                     },
                 )
             }
-            if (editable) {
-                Text(
-                    "入力すると自動で保存されます。編集しても、消える日（作成から30日）は延びません。",
-                    fontSize = 11.5.sp, color = Palette.InkSoft,
-                    modifier = Modifier.padding(top = 8.dp),
-                )
-                // 下部の固定ボタン（本人の指示）：作成画面との違いはこの操作列
-                Row(
-                    Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+            Text(
+                "入力すると自動で保存されます。",
+                fontSize = 11.5.sp, color = Palette.InkSoft,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+            Row(
+                Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                OutlinedButton(
+                    onClick = { onToggleLowPriority(!memo.lowPriority) },
+                    shape = RoundedCornerShape(999.dp),
+                    modifier = Modifier.weight(1f),
                 ) {
-                    if (memo.state == MemoState.FLOWING) {
-                        Button(
-                            onClick = { if (!submitted) { submitted = true; onMemorize() } },
-                            colors = ButtonDefaults.buttonColors(containerColor = Palette.Pink),
-                            shape = RoundedCornerShape(999.dp),
-                            modifier = Modifier.weight(1f),
-                        ) { Text("残す", fontSize = 15.sp) }
-                    }
-                    OutlinedButton(
-                        onClick = onDeleteNow,
-                        shape = RoundedCornerShape(999.dp),
-                        modifier = if (memo.state == MemoState.FLOWING) Modifier else Modifier.weight(1f),
-                    ) { Text("今すぐ消す", fontSize = 13.5.sp, color = Palette.Orange) }
+                    Text(
+                        if (memo.lowPriority) "「そろそろやろう」に戻す" else "「いつかやればいい」に下げる",
+                        fontSize = 13.sp,
+                        color = if (memo.lowPriority) Palette.Pink else Palette.InkSoft,
+                    )
                 }
+                OutlinedButton(
+                    onClick = onDeleteNow,
+                    shape = RoundedCornerShape(999.dp),
+                ) { Text("削除する", fontSize = 13.sp, color = Palette.Orange) }
             }
         }
     }
@@ -1091,17 +1011,10 @@ fun EditScreen(
 
 @Composable
 fun OnboardingScreen(onDone: () -> Unit, canExitToHome: Boolean = false, onExit: () -> Unit = {}, onSelectType: (Int) -> Unit = {}) {
-    // v0.3.6（遷移レビュー）：ページ位置は再生成でも保持する
     var page by rememberSaveable { mutableStateOf(0) }
-    // v0.3.10（本人の指示）：2枚目はタイプ選択。選んだタイプを覚えておく。
     var selectedType by rememberSaveable { mutableStateOf(-1) }
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
-    // v0.3 B3：スキップしても「30日で消える」告知は必ず1行届ける
     var confirmSkip by remember { mutableStateOf(false) }
-    // v0.3.6（遷移レビュー）：戻る操作の行き先を画面遷移として正す。
-    // 途中ページでは前のページへ、1枚目では「使い方」再表示ならホームへ帰り、
-    // 初回ではスキップと同じ告知確認を出す（告知をすり抜ける経路を作らない）。
-    // 告知ダイアログ表示中はそちらの戻る処理に任せるため、このハンドラは止める。
     BackHandler(enabled = !confirmSkip) {
         when {
             page > 0 -> page--
@@ -1111,16 +1024,14 @@ fun OnboardingScreen(onDone: () -> Unit, canExitToHome: Boolean = false, onExit:
     }
     val pages = listOf(
         Triple("書くだけでいい", "思いついたら、1行だけ書く。\n分類も、フォルダも、整理もいりません。", 1.0f),
-        // v0.3.10：本文はタイプ選択UIに差し替えるため空にしておく
         Triple("あなたは、どっちのタイプ？", "", 0.7f),
-        Triple("忘れかけた頃、また出会える", "メモは忘却曲線に合わせて、\n画面の上にそっと浮かび上がります。\n見返す努力は、ゼロでいい。", 0.45f),
-        Triple("残したいものだけ、残る", "「残す」を押したメモだけが、\n少しずつ間を空けて出てきて、身につきます。\n押さなかったメモは、30日でそっと消えます。\nアプリを削除すると、メモもすべて消えます。", 0.25f),
+        Triple("忘れかけた頃、上へ浮かぶ", "書いたメモは勝手には消えません。\n忘却曲線に沿って、忘れかけたものが\n自動で上へ浮かび上がります。", 0.45f),
+        Triple("後回しは、スワイプひとつ", "「今はやらなくていい」と思ったら\n横にスワイプして「いつかやればいい」へ。\n必要なものだけが上段に残ります。\nアプリを削除すると、メモもすべて消えます。", 0.25f),
     )
-    // v0.3.10（本人の指示）：タイプごとに「あなたに最適」が返る選択肢
     val types = listOf(
-        "よく忘れる" to "忘れて、いいんです。\nこのアプリが覚えていて、「そろそろ」の頃にそっと出してきます。\nよく忘れるあなたに、最適です。",
+        "よく忘れる" to "忘れて、いいんです。\nこのアプリが覚えていて、「そろそろ」の頃に上へ出してきます。\nよく忘れるあなたに、最適です。",
         "マルチタスクが苦手" to "同時に抱えなくて、いいんです。\n頭の中の「いつかやろう」は、ぜんぶここに預けてください。\n1つずつ向き合いたいあなたに、最適です。",
-        "期限に追われたくない" to "締め切りは、ありません。\n「いつかやろう」が「そろそろやろう」に変わるまで、静かに待っています。\n期限が苦手なあなたに、最適です。",
+        "期限に追われたくない" to "締め切りは、ありません。\n「いつかやろう」が「そろそろやろう」に変わるまで、静かに並べて待っています。\n期限が苦手なあなたに、最適です。",
     )
     Surface(color = Palette.Paper, modifier = Modifier.fillMaxSize()) {
         Column(
@@ -1137,7 +1048,6 @@ fun OnboardingScreen(onDone: () -> Unit, canExitToHome: Boolean = false, onExit:
                 }
             }
             Spacer(Modifier.height(30.dp))
-            // v0.3.7（本人の言葉）：キャッチフレーズは入口の1枚目にだけ、小さくピンクで置く
             if (page == 0) {
                 Text("メモを不要にするメモ帳", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Palette.Pink, letterSpacing = 2.sp)
                 Spacer(Modifier.height(10.dp))
@@ -1145,7 +1055,6 @@ fun OnboardingScreen(onDone: () -> Unit, canExitToHome: Boolean = false, onExit:
             Text(pages[page].first, fontSize = 26.sp, fontWeight = FontWeight.Black, color = Palette.Ink)
             Spacer(Modifier.height(12.dp))
             if (page == 1) {
-                // v0.3.10：タイプ選択（タップで触覚フィードバック＋「あなたに最適」の返し）
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     types.forEachIndexed { i, type ->
                         val selected = selectedType == i
@@ -1192,7 +1101,6 @@ fun OnboardingScreen(onDone: () -> Unit, canExitToHome: Boolean = false, onExit:
             Spacer(Modifier.height(20.dp))
             if (page < pages.lastIndex) {
                 Button(
-                    // v0.3.8（安定性レビュー）：連打でページ番号が範囲を超えて落ちないよう上限で止める
                     onClick = { page = (page + 1).coerceAtMost(pages.lastIndex) },
                     colors = ButtonDefaults.buttonColors(containerColor = Palette.Pink),
                     shape = RoundedCornerShape(999.dp),
@@ -1216,7 +1124,7 @@ fun OnboardingScreen(onDone: () -> Unit, canExitToHome: Boolean = false, onExit:
             onDismissRequest = { confirmSkip = false },
             containerColor = Palette.CardWhite,
             title = { Text("ひとつだけ、知っておいてください") },
-            text = { Text("「残す」を押さなかったメモは、30日でそっと消えていきます。それが、このアプリの約束です。") },
+            text = { Text("書いたメモは消えずにすべて一覧に残り、忘れかけた頃に上へ浮かびます。後回しにしたいものだけスワイプで下げられます。") },
             confirmButton = {
                 TextButton(onClick = { confirmSkip = false; onDone() }) { Text("わかってはじめる") }
             },
