@@ -859,7 +859,7 @@ fun EditScreen(
     var body by remember(memo.id) { mutableStateOf(memo.body) }
     var question by remember(memo.id) { mutableStateOf(memo.question ?: "") }
     var answer by remember(memo.id) { mutableStateOf(memo.answer ?: "") }
-    var quizAnswerRevealed by remember(memo.id) { mutableStateOf(false) }
+    var quizAnswerRevealed by rememberSaveable(memo.id) { mutableStateOf(false) }
     var undoStack by remember(memo.id) { mutableStateOf<List<Triple<String, String, String>>>(emptyList()) }
     var lastField by remember(memo.id) { mutableStateOf(-1) }
     var lastPushAt by remember(memo.id) { mutableStateOf(0L) }
