@@ -1,204 +1,173 @@
 package app.uroboe
 
-/** メモの状態。仕様書 §3 の状態遷移が正本。 */
-enum class MemoState { FLOWING, LEARNING, MASTERED, AFTERGLOW }
-
+/**
+ * メモのデータモデル。
+ * メモは自動消滅せず、通常は上段（「そろそろやろう」・忘却曲線順）、
+ * 優先度を下げたものだけが下段（「いつかやればいい」）に並ぶ。
+ */
 data class Memo(
     val id: Long,
     val body: String,
     val question: String? = null,
     val answer: String? = null,
-    val state: MemoState = MemoState.FLOWING,
     val createdAt: Long,
-    val checkpointsDone: Int = 0,
-    val stage: Int = 0,
-    val nextDueAt: Long? = null,
-    val afterglowAt: Long? = null,
     val updatedAt: Long = createdAt,
+    /** true のとき「いつかやればいい」（下段）に配置する。 */
+    val lowPriority: Boolean = false,
+    /** 下段へ下げた時刻（epoch ms）。下段の並び順に使う。 */
+    val lowPriorityAt: Long? = null,
+    /** 忘却曲線の現在ステージ（0..6：1時間→1日→3日→7日→14日→30日→60日）。 */
+    val reviewStage: Int = 0,
+    /** 最後に確認（または作成／上段復帰）した時刻（epoch ms）。 */
+    val lastReviewedAt: Long = createdAt,
+    /** 節目を越えて確認した累計回数。 */
     val reunions: Int = 0,
-    /** 最後に再会を消化した日（epoch day）。v0.3〜：間隔を保つため1日1つまでしか消化しない。 */
-    val lastReunionEpochDay: Long = 0,
 ) {
     val isQuiz: Boolean get() = !question.isNullOrBlank()
-    /** 一覧・余韻で見せる題名（質問か本文の最初の空でない行）。 */
+    /** 一覧で見せる題名（質問か本文の最初の空でない行）。 */
     val title: String get() = (question ?: body).lineSequence().firstOrNull { it.isNotBlank() }?.trim().orEmpty()
     /** 表示本文（クイズ形式なら答え、通常は本文）。 */
     val displayBody: String get() = if (isQuiz) (answer ?: "") else body
 }
 
 /**
- * 純粋ロジック（Android非依存・単体テスト対象）。仕様書 §4 / §5 が正本。
+ * 純粋ロジック（Android非依存・単体テスト対象）。
  * 時刻はすべて epoch ミリ秒で受け取る。
  */
 object MemoLogic {
+    const val MINUTE_MS = 60_000L
     const val HOUR_MS = 3_600_000L
     const val DAY_MS = 86_400_000L
-    const val EXPIRE_DAYS = 30
-    const val AFTERGLOW_DAYS = 7
-    const val MAX_RESURFACE = 5
 
-    /** 再会チェックポイント（作成からの経過）。 */
-    val CHECKPOINT_OFFSETS_MS = listOf(HOUR_MS, DAY_MS, 3 * DAY_MS, 7 * DAY_MS, 14 * DAY_MS)
-    val CHECKPOINT_LABELS = listOf("1時間後", "翌日", "3日後", "7日後", "14日後")
+    /** 新規作成・上段復帰直後に最上部へ留める猶予時間（15分）。 */
+    const val FRESH_WINDOW_MS = 15 * MINUTE_MS
 
-    /** 定着ステージの間隔（日数）。 */
-    val STAGE_INTERVAL_DAYS = listOf(1, 3, 7, 14, 30, 60)
-
-    fun ageDays(memo: Memo, now: Long): Int =
-        ((now - memo.createdAt) / DAY_MS).toInt().coerceAtLeast(0)
-
-    fun remainingDays(memo: Memo, now: Long): Int = EXPIRE_DAYS - ageDays(memo, now)
-
-    /** 薄れ表現： opacity = 1.0 − 0.78 × (経過日数/30)、下限 0.22。 */
-    fun opacityFor(ageDays: Int): Float {
-        val ratio = ageDays.coerceIn(0, EXPIRE_DAYS).toFloat() / EXPIRE_DAYS.toFloat()
-        return (1.0f - 0.78f * ratio).coerceAtLeast(0.22f)
-    }
-
-    /** 期限到来済みのチェックポイント数。 */
-    fun dueCheckpointCount(memo: Memo, now: Long): Int {
-        val elapsed = now - memo.createdAt
-        return CHECKPOINT_OFFSETS_MS.count { it <= elapsed }
-    }
-
-    data class EvalResult(
-        val memos: List<Memo>,
-        /** 今回の評価で完全削除されたメモの id（成果カウント用）。 */
-        val deletedIds: List<Long>,
+    /** 忘却曲線に沿った再浮上インターバル（1時間・1日・3日・7日・14日・30日・60日）。 */
+    val FORGETTING_INTERVALS_MS = listOf(
+        HOUR_MS,
+        DAY_MS,
+        3 * DAY_MS,
+        7 * DAY_MS,
+        14 * DAY_MS,
+        30 * DAY_MS,
+        60 * DAY_MS,
     )
 
+    fun currentIntervalMs(memo: Memo): Long =
+        FORGETTING_INTERVALS_MS[memo.reviewStage.coerceIn(0, FORGETTING_INTERVALS_MS.lastIndex)]
+
     /**
-     * 起動時の一括評価：FLOWING の30日経過 → AFTERGLOW、余韻7日経過 → 完全削除。
-     * effectiveNow は時刻ガード適用済みの時刻（呼び出し側で max(現在時刻, 記録済み最大時刻) を渡す）。
+     * 忘却度比率（t / S）。エビングハウス保持率 R = exp(-t/S) と単調に対応し、
+     * 値が大きいほど忘れかけている。1.0 以上で次の節目へ到達。
      */
-    fun evaluate(memos: List<Memo>, effectiveNow: Long): EvalResult {
-        val kept = ArrayList<Memo>(memos.size)
-        val deleted = ArrayList<Long>()
-        for (m in memos) {
-            when (m.state) {
-                MemoState.FLOWING -> {
-                    val expireAt = m.createdAt + EXPIRE_DAYS * DAY_MS
-                    if (effectiveNow >= expireAt) {
-                        val glowEnd = expireAt + AFTERGLOW_DAYS * DAY_MS
-                        if (effectiveNow >= glowEnd) {
-                            deleted += m.id
-                        } else {
-                            kept += m.copy(
-                                state = MemoState.AFTERGLOW,
-                                afterglowAt = expireAt,
-                                updatedAt = effectiveNow,
-                            )
-                        }
-                    } else {
-                        kept += m
+    fun forgettingRatio(memo: Memo, now: Long): Double {
+        val elapsed = (now - memo.lastReviewedAt).coerceAtLeast(0L).toDouble()
+        return elapsed / currentIntervalMs(memo).toDouble()
+    }
+
+    /** 忘却曲線の節目に到達し、「忘れかけ」として上へ浮かぶべき状態か。 */
+    fun isDueForReview(memo: Memo, now: Long): Boolean =
+        !memo.lowPriority && forgettingRatio(memo, now) >= 1.0
+
+    /** 作成・上段復帰直後の猶予時間内か。 */
+    fun isFresh(memo: Memo, now: Long): Boolean {
+        if (memo.lowPriority || memo.reviewStage != 0) return false
+        val elapsed = (now - memo.lastReviewedAt).coerceAtLeast(0L)
+        return elapsed < FRESH_WINDOW_MS
+    }
+
+    /**
+     * 上段（「そろそろやろう」）の並び順：
+     * 1. 作成・復帰直後（15分以内・ステージ0）：すぐ確認できるよう最上部（新しい順）
+     * 2. 忘却曲線の節目に到達済み（forgettingRatio >= 1.0）：忘れかけ度が高い順
+     * 3. 次の節目待ち：節目に近い順（forgettingRatio 降順）
+     */
+    fun sortActiveByForgettingCurve(memos: List<Memo>, now: Long): List<Memo> =
+        memos.filter { !it.lowPriority }
+            .sortedWith { a, b ->
+                val tierA = tierOf(a, now)
+                val tierB = tierOf(b, now)
+                if (tierA != tierB) return@sortedWith tierA.compareTo(tierB)
+                when (tierA) {
+                    0 -> {
+                        val c = b.lastReviewedAt.compareTo(a.lastReviewedAt)
+                        if (c != 0) c else b.id.compareTo(a.id)
+                    }
+                    1 -> {
+                        val c = forgettingRatio(b, now).compareTo(forgettingRatio(a, now))
+                        if (c != 0) c else a.createdAt.compareTo(b.createdAt)
+                    }
+                    else -> {
+                        val c = forgettingRatio(b, now).compareTo(forgettingRatio(a, now))
+                        if (c != 0) c else b.createdAt.compareTo(a.createdAt)
                     }
                 }
-                MemoState.AFTERGLOW -> {
-                    val glowStart = m.afterglowAt ?: m.createdAt + EXPIRE_DAYS * DAY_MS
-                    if (effectiveNow >= glowStart + AFTERGLOW_DAYS * DAY_MS) {
-                        deleted += m.id
-                    } else {
-                        kept += m
-                    }
-                }
-                else -> kept += m
             }
-        }
-        return EvalResult(kept, deleted)
+
+    private fun tierOf(memo: Memo, now: Long): Int = when {
+        isFresh(memo, now) -> 0
+        isDueForReview(memo, now) -> 1
+        else -> 2
     }
 
-    /** 既定の日付オフセット（日本時間）。端末のタイムゾーンが分かる呼び出し側は実オフセットを渡す。 */
-    const val JST_OFFSET_MS = 9 * HOUR_MS
-
-    /**
-     * その土地の日付番号。v0.3.2〜：UTC基準だと日本では朝9時に日が切り替わってしまうため、
-     * タイムゾーンのオフセットを加えてから日数に割る。
-     */
-    fun epochDay(ms: Long, offsetMs: Long = JST_OFFSET_MS): Long = (ms + offsetMs) / DAY_MS
-
-    /**
-     * 今日の再会：未消化チェックポイントがある FLOWING を優先順位つきで最大5件。
-     * v0.3〜：今日すでに再会したメモは出さない（間隔の保持）。
-     */
-    fun resurfaceCandidates(memos: List<Memo>, now: Long, dayOffsetMs: Long = JST_OFFSET_MS): List<Memo> =
-        memos.filter {
-            it.state == MemoState.FLOWING &&
-                dueCheckpointCount(it, now) > it.checkpointsDone &&
-                it.lastReunionEpochDay < epochDay(now, dayOffsetMs)
-        }
+    /** 下段（「いつかやればいい」）の並び順：新しく下げた順。 */
+    fun sortSomeday(memos: List<Memo>): List<Memo> =
+        memos.filter { it.lowPriority }
             .sortedWith(
-                compareBy<Memo> { remainingDays(it, now) }
-                    .thenByDescending { now - it.createdAt }
+                compareByDescending<Memo> { it.lowPriorityAt ?: it.updatedAt }
+                    .thenByDescending { it.id }
             )
-            .take(MAX_RESURFACE)
 
     /**
-     * 再会の消化（v0.3〜）：チェックポイントは1回に1つだけ進める。
-     * 不定期に開いても間隔が潰れず、翌日以降に残りが順に出る。
-     * 消化後の checkpointsDone がそのまま「N回目の再会」の N になる（表示と一致）。
+     * 詳細を開いたときの更新（思い出した扱い）。
+     * 忘却曲線の節目に到達済みなら次のインターバルへ進み、未到達（かつ直近15分以降）なら現在ステージのまま計測起点を更新する。
      */
-    fun consumeCheckpoint(memo: Memo, now: Long, dayOffsetMs: Long = JST_OFFSET_MS): Memo {
-        val due = dueCheckpointCount(memo, now)
-        if (due <= memo.checkpointsDone) return memo
-        return memo.copy(
-            checkpointsDone = memo.checkpointsDone + 1,
-            reunions = memo.reunions + 1,
-            lastReunionEpochDay = epochDay(now, dayOffsetMs),
-            updatedAt = now,
-        )
-    }
-
-    /** 「暗記する」：定着モードへ。次回出題は翌日。 */
-    fun startLearning(memo: Memo, now: Long): Memo =
-        memo.copy(
-            state = MemoState.LEARNING,
-            stage = 0,
-            nextDueAt = now + STAGE_INTERVAL_DAYS[0] * DAY_MS,
-            updatedAt = now,
-        )
-
-    /** 定着をやめる：FLOWING に戻す（30日タイマーは作成日基準のまま）。 */
-    fun stopLearning(memo: Memo, now: Long): Memo =
-        memo.copy(state = MemoState.FLOWING, stage = 0, nextDueAt = null, updatedAt = now)
-
-    fun dueLearning(memos: List<Memo>, now: Long): List<Memo> =
-        memos.filter { it.state == MemoState.LEARNING && (it.nextDueAt ?: Long.MAX_VALUE) <= now }
-            .sortedBy { it.nextDueAt ?: Long.MAX_VALUE }
-
-    /** 「覚えてた」：ステージ前進。最終ステージ（60日）で覚えていたら卒業。 */
-    fun answerRemembered(memo: Memo, now: Long): Memo =
-        if (memo.stage >= STAGE_INTERVAL_DAYS.lastIndex) {
-            memo.copy(state = MemoState.MASTERED, nextDueAt = null, updatedAt = now)
-        } else {
-            val nextStage = memo.stage + 1
+    fun markReviewed(memo: Memo, now: Long): Memo {
+        if (memo.lowPriority) return memo
+        val elapsed = (now - memo.lastReviewedAt).coerceAtLeast(0L)
+        if (memo.reviewStage == 0 && elapsed < FRESH_WINDOW_MS) {
+            return memo
+        }
+        return if (forgettingRatio(memo, now) >= 1.0) {
             memo.copy(
-                stage = nextStage,
-                nextDueAt = now + STAGE_INTERVAL_DAYS[nextStage] * DAY_MS,
+                reviewStage = (memo.reviewStage + 1).coerceAtMost(FORGETTING_INTERVALS_MS.lastIndex),
+                lastReviewedAt = now,
+                reunions = memo.reunions + 1,
+                updatedAt = now,
+            )
+        } else {
+            memo.copy(
+                lastReviewedAt = now,
                 updatedAt = now,
             )
         }
+    }
 
-    /** 「あやしい」：ステージを1つ戻し、翌日に再出題。 */
-    fun answerUnsure(memo: Memo, now: Long): Memo =
+    /** スワイプ等で「いつかやればいい（下段）」へ下げる。 */
+    fun moveToSomeday(memo: Memo, now: Long): Memo =
         memo.copy(
-            stage = maxOf(0, memo.stage - 1),
-            nextDueAt = now + DAY_MS,
+            lowPriority = true,
+            lowPriorityAt = now,
             updatedAt = now,
         )
 
-    /** 余韻からの復活：残り最低3日を保証するため作成日時を27日前へ補正する（仕様 §6.3）。 */
-    fun revive(memo: Memo, now: Long): Memo =
+    /** 下段から「そろそろやろう（上段）」へ戻す。最上部に現れるようステージと計測起点を初期化する。 */
+    fun moveToActive(memo: Memo, now: Long): Memo =
         memo.copy(
-            state = MemoState.FLOWING,
-            createdAt = now - (EXPIRE_DAYS - 3) * DAY_MS,
-            afterglowAt = null,
-            checkpointsDone = CHECKPOINT_OFFSETS_MS.size,
+            lowPriority = false,
+            lowPriorityAt = null,
+            reviewStage = 0,
+            lastReviewedAt = now,
             updatedAt = now,
         )
 
-    fun afterglowRemainingDays(memo: Memo, now: Long): Int {
-        val start = memo.afterglowAt ?: return AFTERGLOW_DAYS
-        val elapsed = ((now - start) / DAY_MS).toInt().coerceAtLeast(0)
-        return (AFTERGLOW_DAYS - elapsed).coerceAtLeast(0)
+    fun elapsedLabel(fromMs: Long, now: Long): String {
+        val diff = (now - fromMs).coerceAtLeast(0L)
+        return when {
+            diff < MINUTE_MS -> "たった今"
+            diff < HOUR_MS -> "${diff / MINUTE_MS}分前"
+            diff < DAY_MS -> "${diff / HOUR_MS}時間前"
+            else -> "${diff / DAY_MS}日前"
+        }
     }
 }
