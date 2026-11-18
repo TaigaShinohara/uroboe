@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Adaptive icon foreground: memo lines that fade away (濃い→薄い3行). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#2B2620"
+        android:pathData="M28,38 h52 v6 h-52 z" />
+    <path
+        android:fillColor="#2B2620"
+        android:fillAlpha="0.55"
+        android:pathData="M28,51 h44 v6 h-44 z" />
+    <path
+        android:fillColor="#C2185B"
+        android:fillAlpha="0.35"
+        android:pathData="M28,64 h34 v6 h-34 z" />
+</vector>

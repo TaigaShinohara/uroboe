@@ -1,0 +1,14 @@
+# Android / Gradle
+*.iml
+.gradle/
+.gradle-home/
+.kotlin/
+build/
+app/build/
+local.properties
+captures/
+
+# この開発環境専用（署名鍵・パスワード・ビルドログ・確認用スクリーンショット）は公開しない
+.local/
+screenshots/
+*.log

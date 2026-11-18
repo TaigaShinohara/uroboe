@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 色の正本は Compose 側の Palette（docs/ART_DIRECTION.md）。ここではバー透過だけを担う。 -->
+    <style name="Theme.Uroboe" parent="android:Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+</resources>
