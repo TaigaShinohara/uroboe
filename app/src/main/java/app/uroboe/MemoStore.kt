@@ -360,9 +360,18 @@ class MemoStore(private val baseDir: File) {
             if (file.exists()) {
                 runCatching { file.copyTo(prevFile, overwrite = true) }
             }
+            // v0.4.2（B-3修正）：予備経路でも file を直接上書きしない。
+            // 別名ファイルへ書き出してから rename で置換し、途中中断で本体が壊れる窓を作らない。
             val replaced = tmpFile.renameTo(file) || runCatching {
-                tmpFile.copyTo(file, overwrite = true)
-                true
+                val altFile = File(baseDir, "memos.json.alt")
+                FileOutputStream(altFile).use { fos ->
+                    fos.write(payload)
+                    fos.flush()
+                    runCatching { fos.fd.sync() }
+                }
+                val ok = altFile.renameTo(file)
+                if (!ok) runCatching { altFile.delete() }
+                ok
             }.getOrDefault(false)
             if (tmpFile.exists()) {
                 runCatching { tmpFile.delete() }

@@ -403,7 +403,7 @@ fun UroboeApp(store: MemoStore) {
             title = { Text("うろぼえ について") },
             text = {
                 Text(
-                    "「いつかやろう」を「そろそろやろう」に変えるメモ帳。\nバージョン 0.4.1\n\n" +
+                    "「いつかやろう」を「そろそろやろう」に変えるメモ帳。\nバージョン 0.4.2\n\n" +
                         "書いたメモは勝手には消えず、忘却曲線に沿って忘れかけたものが上へ浮かびます。\n\n" +
                         "上段のメモは右スワイプで「またあとで」、左スワイプで「いつかやればいい」（自動浮上なしの保留）へ分けられます。データはこの端末の中だけにあります。\n\n" +
                         "アプリを削除（アンインストール）すると、メモもすべて消えます。大事なメモは、画面いちばん下の「データを書き出す」から控えを取っておけます。"
@@ -737,10 +737,16 @@ fun SingleScreen(
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,
                             )
-                            if (!memo.isQuiz && memo.displayBody.isNotBlank() && memo.displayBody != memo.title) {
+                            // v0.4.2（B-2修正）：プレビューは題名（最初の空でない行）を除いた残りを表示し、1行目の二重表示を防ぐ
+                            val previewBody = if (memo.isQuiz) "" else memo.body.lineSequence()
+                                .dropWhile { it.isBlank() }
+                                .drop(1)
+                                .joinToString("\n")
+                                .trim()
+                            if (previewBody.isNotBlank()) {
                                 Spacer(Modifier.height(3.dp))
                                 Text(
-                                    memo.displayBody,
+                                    previewBody,
                                     fontSize = 13.sp,
                                     color = Palette.InkSoft,
                                     maxLines = 3,
