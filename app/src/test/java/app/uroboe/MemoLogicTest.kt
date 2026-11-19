@@ -20,6 +20,7 @@ class MemoLogicTest {
         lowPriorityAt: Long? = null,
         reviewStage: Int = 0,
         lastReviewedAt: Long = createdAt,
+        enteredActiveAt: Long = createdAt,
         reunions: Int = 0,
     ) = Memo(
         id = id,
@@ -30,6 +31,7 @@ class MemoLogicTest {
         lowPriorityAt = lowPriorityAt,
         reviewStage = reviewStage,
         lastReviewedAt = lastReviewedAt,
+        enteredActiveAt = enteredActiveAt,
         reunions = reunions,
     )
 
@@ -45,27 +47,40 @@ class MemoLogicTest {
     }
 
     @Test
-    fun dueMemosSortByHighestForgettingRatioFirst() {
-        // stage 0 (interval 1h): 3h elapsed => ratio 3.0
-        val m1 = memo(id = 1L, createdAt = t0 - 3 * hour, reviewStage = 0)
-        // stage 1 (interval 1d): 2d elapsed => ratio 2.0
-        val m2 = memo(id = 2L, createdAt = t0 - 2 * day, reviewStage = 1)
-        // stage 0 (interval 1h): 5h elapsed => ratio 5.0
-        val m3 = memo(id = 3L, createdAt = t0 - 5 * hour, reviewStage = 0)
+    fun dueMemosSortWithRatioCapSoLongNeglectedMemosSurface() {
+        // stage 0 (1h): 1d elapsed -> ratio 24.0 capped to 2.0, lastReviewedAt = t0 - 1d
+        val shortNeglected = memo(id = 1L, createdAt = t0 - day, reviewStage = 0)
+        // stage 5 (30d): 60d elapsed -> ratio 2.0 capped to 2.0, lastReviewedAt = t0 - 60d
+        val longNeglected = memo(id = 2L, createdAt = t0 - 60 * day, reviewStage = 5)
+        // stage 1 (1d): 36h elapsed -> ratio 1.5 (< 2.0)
+        val moderateDue = memo(id = 3L, createdAt = t0 - 36 * hour, reviewStage = 1)
 
-        val sorted = MemoLogic.sortActiveByForgettingCurve(listOf(m1, m2, m3), t0)
-        assertEquals(listOf(3L, 1L, 2L), sorted.map { it.id })
+        val sorted = MemoLogic.sortActiveByForgettingCurve(
+            listOf(moderateDue, shortNeglected, longNeglected),
+            t0,
+        )
+        // 同じ cap 2.0 同士では長く放置された stage 5 が最上位、次が stage 0、次が ratio 1.5
+        assertEquals(listOf(2L, 1L, 3L), sorted.map { it.id })
     }
 
     @Test
     fun waitingMemosSortClosestToNextMilestoneFirst() {
-        // stage 1 (24h): 20h elapsed => ratio 20/24 = 0.83
         val closer = memo(id = 1L, createdAt = t0 - 20 * hour, reviewStage = 1)
-        // stage 1 (24h): 2h elapsed => ratio 2/24 = 0.08
         val newer = memo(id = 2L, createdAt = t0 - 2 * hour, reviewStage = 1)
 
         val sorted = MemoLogic.sortActiveByForgettingCurve(listOf(newer, closer), t0)
         assertEquals(listOf(1L, 2L), sorted.map { it.id })
+    }
+
+    @Test
+    fun highlightedDueIdsCapsAtMaxDueHighlights() {
+        val memos = (1L..5L).map { idx ->
+            memo(id = idx, createdAt = t0 - (idx + 2) * hour, reviewStage = 0)
+        }
+        val sorted = MemoLogic.sortActiveByForgettingCurve(memos, t0)
+        val highlighted = MemoLogic.highlightedDueIds(sorted, t0)
+        assertEquals(MemoLogic.MAX_DUE_HIGHLIGHTS, highlighted.size)
+        assertEquals(sorted.take(3).map { it.id }.toSet(), highlighted)
     }
 
     @Test
@@ -79,37 +94,35 @@ class MemoLogicTest {
     }
 
     @Test
-    fun markReviewedAdvancesStageOnlyWhenMilestoneReached() {
+    fun deferToNextStageAdvancesOnlyAtMilestoneAndClearsFreshWithoutReentry() {
         var m = memo(createdAt = t0)
-        // 5分後に誤字修正などで開いても、ステージも基準時刻も飛ばない
-        m = MemoLogic.markReviewed(m, t0 + 5 * min)
-        assertEquals(0, m.reviewStage)
-        assertEquals(t0, m.lastReviewedAt)
-        assertEquals(0, m.reunions)
+        assertTrue(MemoLogic.isFresh(m, t0 + 5 * min))
 
-        // 30分後（15分超・1時間未満）：ステージ0のまま起点のみ更新
-        m = MemoLogic.markReviewed(m, t0 + 30 * min)
+        // 30分後（未到達）に明示的に「またあとで」を押すと、ステージ0のまま起点更新し Fresh へは戻らない
+        m = MemoLogic.deferToNextStage(m, t0 + 30 * min)
         assertEquals(0, m.reviewStage)
         assertEquals(t0 + 30 * min, m.lastReviewedAt)
+        assertEquals(0, m.reunions)
+        assertFalse(MemoLogic.isFresh(m, t0 + 31 * min))
 
-        // 1時間経過後に開くとステージ1（次は1日）へ進む
+        // 1時間経過後に「またあとで」を押すとステージ1（次は1日）へ進む
         val intervals = listOf(hour, day, 3 * day, 7 * day, 14 * day, 30 * day)
         var cursor = t0 + 30 * min
         for ((idx, interval) in intervals.withIndex()) {
             cursor += interval
-            m = MemoLogic.markReviewed(m, cursor)
+            m = MemoLogic.deferToNextStage(m, cursor)
             assertEquals(idx + 1, m.reviewStage)
             assertEquals(idx + 1, m.reunions)
         }
         // 最大ステージ（60日）を超えない
         cursor += 60 * day
-        m = MemoLogic.markReviewed(m, cursor)
+        m = MemoLogic.deferToNextStage(m, cursor)
         assertEquals(MemoLogic.FORGETTING_INTERVALS_MS.lastIndex, m.reviewStage)
     }
 
     @Test
-    fun moveToSomedayAndBackToActive() {
-        val m = memo(createdAt = t0, reviewStage = 3)
+    fun moveToSomedayAndBackToActiveRestoresFresh() {
+        val m = memo(createdAt = t0, reviewStage = 3, enteredActiveAt = 0L)
         val someday = MemoLogic.moveToSomeday(m, t0 + day)
         assertTrue(someday.lowPriority)
         assertEquals(t0 + day, someday.lowPriorityAt)
@@ -119,6 +132,7 @@ class MemoLogicTest {
         assertNull(restored.lowPriorityAt)
         assertEquals(0, restored.reviewStage)
         assertEquals(t0 + 2 * day, restored.lastReviewedAt)
+        assertEquals(t0 + 2 * day, restored.enteredActiveAt)
         assertTrue(MemoLogic.isFresh(restored, t0 + 2 * day))
     }
 

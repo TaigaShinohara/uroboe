@@ -18,9 +18,11 @@ data class Memo(
     val lowPriorityAt: Long? = null,
     /** 忘却曲線の現在ステージ（0..6：1時間→1日→3日→7日→14日→30日→60日）。 */
     val reviewStage: Int = 0,
-    /** 最後に確認（または作成／上段復帰）した時刻（epoch ms）。 */
+    /** 最後に「またあとで」（または作成／上段復帰）した時刻（epoch ms）。 */
     val lastReviewedAt: Long = createdAt,
-    /** 節目を越えて確認した累計回数。 */
+    /** 新規作成または上段復帰で上段に入った時刻。直後15分の最上部維持に使う（0以下で無効）。 */
+    val enteredActiveAt: Long = createdAt,
+    /** 節目を越えて「またあとで」を送った累計回数。 */
     val reunions: Int = 0,
 ) {
     val isQuiz: Boolean get() = !question.isNullOrBlank()
@@ -41,6 +43,17 @@ object MemoLogic {
 
     /** 新規作成・上段復帰直後に最上部へ留める猶予時間（15分）。 */
     const val FRESH_WINDOW_MS = 15 * MINUTE_MS
+
+    /**
+     * Tier 1（節目到達済み）ソート時の忘却度比率の上限。
+     * 2.0（インターバルの2倍以上放置）で頭打ちにし、それ以上は最後に確認してからの
+     * 経過が長い（lastReviewedAt が古い）メモを優先することで、短周期メモが長期メモを
+     * 押し下げ続ける歪みを防ぐ。
+     */
+    const val MAX_SORT_RATIO = 2.0
+
+    /** 上段で「忘れかけ」ピンクピルを付ける最大件数（画面のピンク氾濫を防ぐ）。 */
+    const val MAX_DUE_HIGHLIGHTS = 3
 
     /** 忘却曲線に沿った再浮上インターバル（1時間・1日・3日・7日・14日・30日・60日）。 */
     val FORGETTING_INTERVALS_MS = listOf(
@@ -69,17 +82,19 @@ object MemoLogic {
     fun isDueForReview(memo: Memo, now: Long): Boolean =
         !memo.lowPriority && forgettingRatio(memo, now) >= 1.0
 
-    /** 作成・上段復帰直後の猶予時間内か。 */
+    /** 作成・上段復帰直後の猶予時間内か（明示的な「またあとで」後は false）。 */
     fun isFresh(memo: Memo, now: Long): Boolean {
-        if (memo.lowPriority || memo.reviewStage != 0) return false
-        val elapsed = (now - memo.lastReviewedAt).coerceAtLeast(0L)
+        if (memo.lowPriority || memo.reviewStage != 0 || memo.enteredActiveAt <= 0L) return false
+        if (memo.lastReviewedAt != memo.enteredActiveAt) return false
+        val elapsed = (now - memo.enteredActiveAt).coerceAtLeast(0L)
         return elapsed < FRESH_WINDOW_MS
     }
 
     /**
      * 上段（「そろそろやろう」）の並び順：
-     * 1. 作成・復帰直後（15分以内・ステージ0）：すぐ確認できるよう最上部（新しい順）
-     * 2. 忘却曲線の節目に到達済み（forgettingRatio >= 1.0）：忘れかけ度が高い順
+     * 1. 作成・復帰直後（15分以内・未送り）：すぐ確認できるよう最上部（新しい順）
+     * 2. 忘却曲線の節目に到達済み（forgettingRatio >= 1.0）：
+     *    上限2.0で頭打ちした忘却度比率の降順、同率時は lastReviewedAt が古い順
      * 3. 次の節目待ち：節目に近い順（forgettingRatio 降順）
      */
     fun sortActiveByForgettingCurve(memos: List<Memo>, now: Long): List<Memo> =
@@ -90,12 +105,17 @@ object MemoLogic {
                 if (tierA != tierB) return@sortedWith tierA.compareTo(tierB)
                 when (tierA) {
                     0 -> {
-                        val c = b.lastReviewedAt.compareTo(a.lastReviewedAt)
+                        val c = b.enteredActiveAt.compareTo(a.enteredActiveAt)
                         if (c != 0) c else b.id.compareTo(a.id)
                     }
                     1 -> {
-                        val c = forgettingRatio(b, now).compareTo(forgettingRatio(a, now))
-                        if (c != 0) c else a.createdAt.compareTo(b.createdAt)
+                        val ratioA = forgettingRatio(a, now).coerceAtMost(MAX_SORT_RATIO)
+                        val ratioB = forgettingRatio(b, now).coerceAtMost(MAX_SORT_RATIO)
+                        val c = ratioB.compareTo(ratioA)
+                        if (c != 0) c else {
+                            val r = a.lastReviewedAt.compareTo(b.lastReviewedAt)
+                            if (r != 0) r else a.createdAt.compareTo(b.createdAt)
+                        }
                     }
                     else -> {
                         val c = forgettingRatio(b, now).compareTo(forgettingRatio(a, now))
@@ -103,6 +123,15 @@ object MemoLogic {
                     }
                 }
             }
+
+    /** 上段メモのうち「忘れかけ」ピルを表示すべきメモID集合（最上位 MAX_DUE_HIGHLIGHTS 件まで）。 */
+    fun highlightedDueIds(sortedActiveMemos: List<Memo>, now: Long): Set<Long> =
+        sortedActiveMemos
+            .asSequence()
+            .filter { isDueForReview(it, now) }
+            .take(MAX_DUE_HIGHLIGHTS)
+            .map { it.id }
+            .toSet()
 
     private fun tierOf(memo: Memo, now: Long): Int = when {
         isFresh(memo, now) -> 0
@@ -119,25 +148,25 @@ object MemoLogic {
             )
 
     /**
-     * 詳細を開いたときの更新（思い出した扱い）。
-     * 忘却曲線の節目に到達済みなら次のインターバルへ進み、未到達（かつ直近15分以降）なら現在ステージのまま計測起点を更新する。
+     * 明示的な「またあとで」操作（上段右スワイプまたは編集画面の［またあとで］）。
+     * 閲覧・編集だけでは呼ばれない。
+     * - 節目到達済みなら次のインターバルへ進み、reunions を加算する。
+     * - 節目未到達なら現在ステージのまま計測起点を now に更新し、Fresh 猶予は解除する。
      */
-    fun markReviewed(memo: Memo, now: Long): Memo {
+    fun deferToNextStage(memo: Memo, now: Long): Memo {
         if (memo.lowPriority) return memo
-        val elapsed = (now - memo.lastReviewedAt).coerceAtLeast(0L)
-        if (memo.reviewStage == 0 && elapsed < FRESH_WINDOW_MS) {
-            return memo
-        }
         return if (forgettingRatio(memo, now) >= 1.0) {
             memo.copy(
                 reviewStage = (memo.reviewStage + 1).coerceAtMost(FORGETTING_INTERVALS_MS.lastIndex),
                 lastReviewedAt = now,
+                enteredActiveAt = 0L,
                 reunions = memo.reunions + 1,
                 updatedAt = now,
             )
         } else {
             memo.copy(
                 lastReviewedAt = now,
+                enteredActiveAt = 0L,
                 updatedAt = now,
             )
         }
@@ -158,6 +187,7 @@ object MemoLogic {
             lowPriorityAt = null,
             reviewStage = 0,
             lastReviewedAt = now,
+            enteredActiveAt = now,
             updatedAt = now,
         )
 
