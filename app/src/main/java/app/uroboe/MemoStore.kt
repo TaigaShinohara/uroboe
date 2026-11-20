@@ -164,6 +164,13 @@ class MemoStore(private val baseDir: File) {
         update({ MemoLogic.deferToNextStage(it, now) }, id)
     }
 
+    /** 「そろそろやる」と決める（v0.4.3）。 */
+    @Synchronized
+    fun setWillDo(id: Long, now: Long = effectiveNow()) {
+        advanceClockGuard(now)
+        update({ MemoLogic.setWillDo(it, now) }, id)
+    }
+
     @Synchronized
     fun deleteNow(id: Long) {
         _data.value = _data.value.copy(memos = _data.value.memos.filterNot { it.id == id })
@@ -212,6 +219,7 @@ class MemoStore(private val baseDir: File) {
             o.put("reviewStage", m.reviewStage)
             o.put("lastReviewedAt", m.lastReviewedAt)
             o.put("enteredActiveAt", m.enteredActiveAt)
+            o.put("willDoAt", m.willDoAt ?: JSONObject.NULL)
             o.put("reunions", m.reunions)
             arr.put(o)
         }
@@ -285,6 +293,8 @@ class MemoStore(private val baseDir: File) {
                             reviewStage = reviewStage,
                             lastReviewedAt = lastReviewedAt,
                             enteredActiveAt = enteredActiveAt,
+                            // v0.4.3：「そろそろやる」宣言時刻。旧データには無いので null。
+                            willDoAt = if (it.isNull("willDoAt")) null else it.optLong("willDoAt").takeIf { v -> v > 0L },
                             reunions = it.optInt("reunions", 0).coerceAtLeast(0),
                         )
                     }.getOrNull()

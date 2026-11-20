@@ -222,24 +222,32 @@ fun UroboeApp(store: MemoStore) {
     if (detailMemo != null) {
         EditScreen(
             memo = detailMemo,
+            now = now,
             onBack = {
                 detailId = null
                 now = store.effectiveNow()
             },
             onEdit = { body, q, a -> store.editBody(detailMemo.id, body, q, a) },
+            onWillDo = {
+                val snapshot = detailMemo
+                store.setWillDo(detailMemo.id)
+                detailId = null
+                now = store.effectiveNow()
+                store.postNotice("「そろそろやる」に決めました", "元に戻す", snapshot)
+            },
             onDefer = {
                 val snapshot = detailMemo
                 store.deferToNextStage(detailMemo.id)
                 detailId = null
                 now = store.effectiveNow()
-                store.postNotice("「またあとで」に送りました", "元に戻す", snapshot)
+                store.postNotice("「まだやらない」にしました", "元に戻す", snapshot)
             },
             onComplete = {
                 val snapshot = detailMemo
                 store.deleteNow(detailMemo.id)
                 detailId = null
                 now = store.effectiveNow()
-                store.postNotice("完了しました", "元に戻す", snapshot)
+                store.postNotice("「やった」で片づけました", "元に戻す", snapshot)
             },
             onToggleLowPriority = { lowPriority ->
                 val snapshot = detailMemo
@@ -403,7 +411,7 @@ fun UroboeApp(store: MemoStore) {
             title = { Text("うろぼえ について") },
             text = {
                 Text(
-                    "「いつかやろう」を「そろそろやろう」に変えるメモ帳。\nバージョン 0.4.2\n\n" +
+                    "「いつかやろう」を「そろそろやろう」に変えるメモ帳。\nバージョン 0.4.3\n\n" +
                         "書いたメモは勝手には消えず、忘却曲線に沿って忘れかけたものが上へ浮かびます。\n\n" +
                         "上段のメモは右スワイプで「またあとで」、左スワイプで「いつかやればいい」（自動浮上なしの保留）へ分けられます。データはこの端末の中だけにあります。\n\n" +
                         "アプリを削除（アンインストール）すると、メモもすべて消えます。大事なメモは、画面いちばん下の「データを書き出す」から控えを取っておけます。"
@@ -712,7 +720,13 @@ fun SingleScreen(
                                     fontSize = 12.sp,
                                     color = Palette.InkSoft,
                                 )
-                                if (showDuePill) {
+                                // v0.4.3：「そろそろやる」宣言中のピルを優先表示する
+                                val pillText = when {
+                                    memo.willDoAt != null -> "そろそろやる"
+                                    showDuePill -> "忘れかけ"
+                                    else -> null
+                                }
+                                if (pillText != null) {
                                     Box(
                                         Modifier
                                             .clip(RoundedCornerShape(999.dp))
@@ -720,7 +734,7 @@ fun SingleScreen(
                                             .padding(horizontal = 8.dp, vertical = 2.dp),
                                     ) {
                                         Text(
-                                            "忘れかけ",
+                                            pillText,
                                             fontSize = 12.sp,
                                             color = Palette.Pink,
                                             fontWeight = FontWeight.Bold,
@@ -934,8 +948,10 @@ fun WriteScreen(onDismiss: () -> Unit, onSave: (String) -> Unit) {
 @Composable
 fun EditScreen(
     memo: Memo,
+    now: Long,
     onBack: () -> Unit,
     onEdit: (String, String?, String?) -> Unit,
+    onWillDo: () -> Unit,
     onDefer: () -> Unit,
     onComplete: () -> Unit,
     onToggleLowPriority: (Boolean) -> Unit,
@@ -1004,12 +1020,24 @@ fun EditScreen(
                 }
             }
             val statusText = if (memo.lowPriority) "いつかやればいい" else "そろそろやろう"
+            // v0.4.3：寝かせ具合（忘れかけ／次の浮上まで／宣言中）を状態行の下に1行で出す
+            val dueLabel = MemoLogic.dueStatusLabel(memo, now)
+            val dueEmphasis = memo.willDoAt != null || MemoLogic.isDueForReview(memo, now)
             Text(
                 "作成：${fmtDateFull(memo.createdAt)} ・ $statusText",
                 fontSize = 12.sp,
                 color = Palette.InkSoft,
-                modifier = Modifier.padding(top = 2.dp, bottom = 10.dp),
+                modifier = Modifier.padding(top = 2.dp, bottom = if (dueLabel != null) 2.dp else 10.dp),
             )
+            if (dueLabel != null) {
+                Text(
+                    dueLabel,
+                    fontSize = 12.sp,
+                    fontWeight = if (dueEmphasis) FontWeight.Bold else FontWeight.Normal,
+                    color = if (dueEmphasis) Palette.Pink else Palette.InkSoft,
+                    modifier = Modifier.padding(bottom = 10.dp),
+                )
+            }
             Column(
                 Modifier
                     .fillMaxWidth()
@@ -1076,11 +1104,46 @@ fun EditScreen(
                 modifier = Modifier.padding(top = 8.dp),
             )
             if (!memo.lowPriority) {
+                // v0.4.3：主役は「そろそろやる／まだやらない」の選択。完了は「やった」に改名。
+                val committed = memo.willDoAt != null
                 Row(
-                    Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 12.dp),
+                    Modifier.fillMaxWidth().padding(top = 10.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    if (committed) {
+                        Button(
+                            onClick = onComplete,
+                            shape = RoundedCornerShape(999.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Palette.Pink),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text(
+                                "やった",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    } else {
+                        Button(
+                            onClick = onWillDo,
+                            shape = RoundedCornerShape(999.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Palette.Pink),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text(
+                                "そろそろやる",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
                     OutlinedButton(
                         onClick = onDefer,
                         shape = RoundedCornerShape(999.dp),
@@ -1088,13 +1151,19 @@ fun EditScreen(
                         modifier = Modifier.weight(1f),
                     ) {
                         Text(
-                            "またあとで",
+                            "まだやらない",
                             fontSize = 13.sp,
                             color = Palette.Ink,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
+                }
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     OutlinedButton(
                         onClick = { onToggleLowPriority(true) },
                         shape = RoundedCornerShape(999.dp),
@@ -1109,20 +1178,22 @@ fun EditScreen(
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
-                    Button(
-                        onClick = onComplete,
-                        shape = RoundedCornerShape(999.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Palette.Pink),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Text(
-                            "できた",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
+                    if (!committed) {
+                        OutlinedButton(
+                            onClick = onComplete,
+                            shape = RoundedCornerShape(999.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text(
+                                "やった",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Palette.Pink,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                     }
                 }
             } else {
@@ -1203,7 +1274,7 @@ fun OnboardingScreen(
         ),
         Triple(
             "さばき方は、スワイプひとつ",
-            "右にスワイプで「またあとで」、\n左にスワイプで「いつかやればいい」（保留）へ。\n開いた画面から「できた」で完了できます。\n※アプリを削除すると、メモもすべて消えます。",
+            "右にスワイプで「またあとで」、\n左にスワイプで「いつかやればいい」（保留）へ。\n開いた画面では「そろそろやる」か「まだやらない」かを選べて、やれたら「やった」で完了です。\n※アプリを削除すると、メモもすべて消えます。",
             true,
         ),
     )

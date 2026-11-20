@@ -13,8 +13,8 @@ android {
         applicationId = "app.uroboe"
         minSdk = 26
         targetSdk = 36
-        versionCode = 16
-        versionName = "0.4.2"
+        versionCode = 17
+        versionName = "0.4.3"
     }
 
     // v0.3.3：署名鍵をプロジェクト内（永続領域）に固定する。

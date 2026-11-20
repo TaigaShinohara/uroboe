@@ -22,6 +22,8 @@ data class Memo(
     val lastReviewedAt: Long = createdAt,
     /** 新規作成または上段復帰で上段に入った時刻。直後15分の最上部維持に使う（0以下で無効）。 */
     val enteredActiveAt: Long = createdAt,
+    /** 「そろそろやる」と決めた時刻（v0.4.3）。設定中は上段の最上部に固定される。 */
+    val willDoAt: Long? = null,
     /** 節目を越えて「またあとで」を送った累計回数。 */
     val reunions: Int = 0,
 ) {
@@ -104,6 +106,11 @@ object MemoLogic {
                 val tierB = tierOf(b, now)
                 if (tierA != tierB) return@sortedWith tierA.compareTo(tierB)
                 when (tierA) {
+                    -1 -> {
+                        // 「そろそろやる」宣言中：決めた順ではなく新しい宣言を上に
+                        val c = (b.willDoAt ?: 0L).compareTo(a.willDoAt ?: 0L)
+                        if (c != 0) c else b.id.compareTo(a.id)
+                    }
                     0 -> {
                         val c = b.enteredActiveAt.compareTo(a.enteredActiveAt)
                         if (c != 0) c else b.id.compareTo(a.id)
@@ -134,9 +141,39 @@ object MemoLogic {
             .toSet()
 
     private fun tierOf(memo: Memo, now: Long): Int = when {
+        memo.willDoAt != null && !memo.lowPriority -> -1
         isFresh(memo, now) -> 0
         isDueForReview(memo, now) -> 1
         else -> 2
+    }
+
+    /** 「そろそろやる」と決める（v0.4.3）。上段の最上部に固定される。 */
+    fun setWillDo(memo: Memo, now: Long): Memo {
+        if (memo.lowPriority) return memo
+        return memo.copy(willDoAt = now, updatedAt = now)
+    }
+
+    /**
+     * 詳細画面に出す「寝かせ具合」の一言（v0.4.3）。
+     * 下段では null（自動浮上がないので出さない）。
+     */
+    fun dueStatusLabel(memo: Memo, now: Long): String? {
+        if (memo.lowPriority) return null
+        if (memo.willDoAt != null) return "「そろそろやる」に決めたメモ"
+        val interval = currentIntervalMs(memo)
+        val elapsed = (now - memo.lastReviewedAt).coerceAtLeast(0L)
+        return when {
+            elapsed >= interval -> "忘れかけています"
+            isFresh(memo, now) -> "預けたばかりです"
+            else -> {
+                val remain = interval - elapsed
+                when {
+                    remain < HOUR_MS -> "次の浮上まで あと${(remain / MINUTE_MS).coerceAtLeast(1)}分"
+                    remain < DAY_MS -> "次の浮上まで あと${remain / HOUR_MS}時間"
+                    else -> "次の浮上まで あと${remain / DAY_MS}日"
+                }
+            }
+        }
     }
 
     /** 下段（「いつかやればいい」）の並び順：新しく下げた順。 */
@@ -160,6 +197,7 @@ object MemoLogic {
                 reviewStage = (memo.reviewStage + 1).coerceAtMost(FORGETTING_INTERVALS_MS.lastIndex),
                 lastReviewedAt = now,
                 enteredActiveAt = 0L,
+                willDoAt = null,
                 reunions = memo.reunions + 1,
                 updatedAt = now,
             )
@@ -167,6 +205,7 @@ object MemoLogic {
             memo.copy(
                 lastReviewedAt = now,
                 enteredActiveAt = 0L,
+                willDoAt = null,
                 updatedAt = now,
             )
         }
@@ -177,6 +216,7 @@ object MemoLogic {
         memo.copy(
             lowPriority = true,
             lowPriorityAt = now,
+            willDoAt = null,
             updatedAt = now,
         )
 
