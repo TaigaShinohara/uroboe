@@ -205,14 +205,12 @@ fun UroboeApp(store: MemoStore) {
     }
 
     if (writeOpen) {
+        // v0.5.1：保存ボタンは廃止し、書く画面も自動保存にした（詳細画面と同方式）
         WriteScreen(
-            onDismiss = { writeOpen = false },
-            onSave = { body ->
-                store.addMemo(body)
-                writeOpen = false
-                now = store.effectiveNow()
-                store.postNotice("メモしました。忘れかけた頃に上へ浮かびます")
-            },
+            onDismiss = { writeOpen = false; now = store.effectiveNow() },
+            onCreate = { body -> store.addMemo(body).id },
+            onUpdate = { id, body -> store.editBody(id, body, null, null) },
+            onDiscardNew = { id -> store.deleteNow(id) },
         )
         return
     }
@@ -409,7 +407,7 @@ fun UroboeApp(store: MemoStore) {
             title = { Text("うろぼえ について") },
             text = {
                 Text(
-                    "「いつかやろう」を「そろそろやろう」に変えるメモ帳。\nバージョン 0.5.0\n\n" +
+                    "「いつかやろう」を「そろそろやろう」に変えるメモ帳。\nバージョン 0.5.1\n\n" +
                         "書いたメモは勝手には消えず、忘却曲線に沿って忘れかけたものが上へ浮かびます。\n\n" +
                         "上段のメモは右スワイプで「またあとで」、左スワイプで「いつかやればいい」（自動浮上なしの保留）へ分けられます。データはこの端末の中だけにあります。\n\n" +
                         "アプリを削除（アンインストール）すると、メモもすべて消えます。大事なメモは、画面いちばん下の「その他」→「データを書き出す」から控えを取っておけます。"
@@ -849,15 +847,17 @@ fun SingleScreen(
 // ---------------- 書く（全画面・Google Keep風の枠なし1欄） ----------------
 
 @Composable
-fun WriteScreen(onDismiss: () -> Unit, onSave: (String) -> Unit) {
+fun WriteScreen(
+    onDismiss: () -> Unit,
+    onCreate: (String) -> Long,
+    onUpdate: (Long, String) -> Unit,
+    onDiscardNew: (Long) -> Unit,
+) {
     var body by rememberSaveable { mutableStateOf("") }
-    var confirmDiscard by rememberSaveable { mutableStateOf(false) }
-    var submitted by remember { mutableStateOf(false) }
-    val canSave = body.isNotBlank()
-    fun tryDismiss() {
-        if (canSave) confirmDiscard = true else onDismiss()
-    }
-    BackHandler { tryDismiss() }
+    // v0.5.1：自動保存。最初の入力でメモを作り、以後はその場で更新する。
+    // 全部消したら作りかけのメモも消す（＝実質なかったことになる）。戻る操作はそのまま確定。
+    var createdId by rememberSaveable { mutableStateOf<Long?>(null) }
+    BackHandler { onDismiss() }
     val focusRequester = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { focusRequester.requestFocus() } }
     Surface(color = Palette.Paper, modifier = Modifier.fillMaxSize()) {
@@ -866,27 +866,12 @@ fun WriteScreen(onDismiss: () -> Unit, onSave: (String) -> Unit) {
         ) {
             Row(
                 Modifier.fillMaxWidth().padding(top = 4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 TextButton(
-                    onClick = { tryDismiss() },
+                    onClick = { onDismiss() },
                     modifier = Modifier.semantics { contentDescription = "前の画面に戻る" },
                 ) { Text("←", fontSize = 20.sp, color = Palette.InkSoft) }
-                TextButton(
-                    onClick = {
-                        if (!submitted) {
-                            submitted = true
-                            onSave(body.trim())
-                        }
-                    },
-                    enabled = canSave && !submitted,
-                ) {
-                    Text(
-                        "保存", fontSize = 15.sp, fontWeight = FontWeight.Bold,
-                        color = if (canSave) Palette.Pink else Palette.InkSoft.copy(alpha = 0.45f),
-                    )
-                }
             }
             Spacer(Modifier.height(6.dp))
             Box(
@@ -897,7 +882,18 @@ fun WriteScreen(onDismiss: () -> Unit, onSave: (String) -> Unit) {
             ) {
                 BasicTextField(
                     value = body,
-                    onValueChange = { body = it.take(1000) },
+                    onValueChange = { raw ->
+                        val text = raw.take(1000)
+                        body = text
+                        val trimmed = text.trim()
+                        val id = createdId
+                        if (trimmed.isNotEmpty()) {
+                            if (id == null) createdId = onCreate(trimmed) else onUpdate(id, trimmed)
+                        } else if (id != null) {
+                            onDiscardNew(id)
+                            createdId = null
+                        }
+                    },
                     textStyle = TextStyle(fontSize = 17.sp, color = Palette.Ink, lineHeight = 27.sp),
                     cursorBrush = SolidColor(Palette.Pink),
                     modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 200.dp).focusRequester(focusRequester),
@@ -919,22 +915,6 @@ fun WriteScreen(onDismiss: () -> Unit, onSave: (String) -> Unit) {
             // v0.5：底の説明文は整理で削除した（オンボーディングで伝える）
             Spacer(Modifier.height(12.dp))
         }
-    }
-    if (confirmDiscard) {
-        AlertDialog(
-            onDismissRequest = { confirmDiscard = false },
-            containerColor = Palette.CardWhite,
-            title = { Text("書いたメモを破棄しますか？") },
-            text = { Text("まだ保存されていません。このまま戻ると、書いたものは消えます。") },
-            confirmButton = {
-                TextButton(onClick = { confirmDiscard = false; onDismiss() }) {
-                    Text("破棄する", color = Palette.Orange, fontWeight = FontWeight.Bold)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmDiscard = false }) { Text("書き続ける") }
-            },
-        )
     }
 }
 
