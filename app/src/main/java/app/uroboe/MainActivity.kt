@@ -40,6 +40,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -102,9 +104,6 @@ object Palette {
     val Orange = Color(0xFFB83B00)
     val OrangeBg = Color(0xFFFFF0E3)
 }
-
-private fun fmtDateFull(ms: Long): String =
-    SimpleDateFormat("yyyy年M月d日", Locale.JAPAN).format(Date(ms))
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -301,7 +300,6 @@ fun UroboeApp(store: MemoStore) {
                     onRequestDelete = { memo ->
                         confirmDeleteId = memo.id
                     },
-                    onShowHelp = { showOnboarding = true },
                     onWipe = { confirmWipe = true },
                     onAbout = { showAbout = true },
                     onExport = {
@@ -336,7 +334,7 @@ fun UroboeApp(store: MemoStore) {
                                 current.text,
                                 color = Palette.Pink,
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp,
+                                fontSize = 12.5.sp,
                                 modifier = Modifier.weight(1f, fill = false),
                             )
                             if (current.undoLabel != null && current.snapshot != null) {
@@ -352,7 +350,7 @@ fun UroboeApp(store: MemoStore) {
                                         current.undoLabel,
                                         color = Palette.Pink,
                                         fontWeight = FontWeight.Black,
-                                        fontSize = 13.sp,
+                                        fontSize = 12.5.sp,
                                     )
                                 }
                             }
@@ -411,14 +409,18 @@ fun UroboeApp(store: MemoStore) {
             title = { Text("うろぼえ について") },
             text = {
                 Text(
-                    "「いつかやろう」を「そろそろやろう」に変えるメモ帳。\nバージョン 0.4.3\n\n" +
+                    "「いつかやろう」を「そろそろやろう」に変えるメモ帳。\nバージョン 0.5.0\n\n" +
                         "書いたメモは勝手には消えず、忘却曲線に沿って忘れかけたものが上へ浮かびます。\n\n" +
                         "上段のメモは右スワイプで「またあとで」、左スワイプで「いつかやればいい」（自動浮上なしの保留）へ分けられます。データはこの端末の中だけにあります。\n\n" +
-                        "アプリを削除（アンインストール）すると、メモもすべて消えます。大事なメモは、画面いちばん下の「データを書き出す」から控えを取っておけます。"
+                        "アプリを削除（アンインストール）すると、メモもすべて消えます。大事なメモは、画面いちばん下の「その他」→「データを書き出す」から控えを取っておけます。"
                 )
             },
             confirmButton = {
                 TextButton(onClick = { showAbout = false }) { Text("閉じる") }
+            },
+            dismissButton = {
+                // v0.5：「使い方」はヘッダーから移し、ここから開けるようにした
+                TextButton(onClick = { showAbout = false; showOnboarding = true }) { Text("使い方を見る") }
             },
         )
     }
@@ -468,29 +470,23 @@ private fun SectionTitle(
     text: String,
     countLabel: String,
     color: Color = Palette.Pink,
-    hint: String? = null,
 ) {
-    Column(Modifier.fillMaxWidth().padding(top = 20.dp, bottom = 6.dp)) {
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text,
-                color = color,
-                fontWeight = FontWeight.Bold,
-                fontSize = 13.5.sp,
-                letterSpacing = 0.8.sp,
-                modifier = Modifier.weight(1f),
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(countLabel, color = Palette.InkSoft, fontSize = 12.sp)
-        }
-        if (hint != null) {
-            Spacer(Modifier.height(2.dp))
-            Text(hint, color = Palette.InkSoft, fontSize = 12.sp)
-        }
+    // v0.5：見出し下のヒント文は整理で削除した
+    Row(
+        Modifier.fillMaxWidth().padding(top = 20.dp, bottom = 6.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text,
+            color = color,
+            fontWeight = FontWeight.Bold,
+            fontSize = 12.5.sp,
+            letterSpacing = 0.8.sp,
+            modifier = Modifier.weight(1f),
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(countLabel, color = Palette.InkSoft, fontSize = 12.5.sp)
     }
 }
 
@@ -584,7 +580,7 @@ private fun SwipeableMemoWrapper(
                 contentAlignment = align,
             ) {
                 if (dir != SwipeToDismissBoxValue.Settled) {
-                    Text(label, color = fg, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    Text(label, color = fg, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
                 }
             }
         },
@@ -604,36 +600,27 @@ fun SingleScreen(
     onMoveToSomeday: (Memo) -> Unit,
     onMoveToActive: (Memo) -> Unit,
     onRequestDelete: (Memo) -> Unit,
-    onShowHelp: () -> Unit,
     onWipe: () -> Unit,
     onAbout: () -> Unit,
     onExport: () -> Unit,
 ) {
     val activeMemos = remember(data.memos, now) { MemoLogic.sortActiveByForgettingCurve(data.memos, now) }
     val highlightedDueIds = remember(activeMemos, now) { MemoLogic.highlightedDueIds(activeMemos, now) }
-    val dueCount = remember(activeMemos, now) { activeMemos.count { MemoLogic.isDueForReview(it, now) } }
     val somedayMemos = remember(data.memos) { MemoLogic.sortSomeday(data.memos) }
 
     LazyColumn(
         Modifier.fillMaxSize().padding(horizontal = 16.dp),
         contentPadding = PaddingValues(bottom = 96.dp),
     ) {
-        // ヘッダー
+        // ヘッダー（v0.5：日付と「使い方」は整理で削除。使い方は「その他」→Aboutから開ける）
         item {
-            Row(
-                Modifier.fillMaxWidth().padding(top = 14.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column {
-                    Text("うろぼえ", fontSize = 24.sp, fontWeight = FontWeight.Black, color = Palette.Ink)
-                    Text(
-                        SimpleDateFormat("M月d日（E）", Locale.JAPAN).format(Date(now)),
-                        color = Palette.InkSoft, fontSize = 13.sp,
-                    )
-                }
-                TextButton(onClick = onShowHelp) { Text("使い方", color = Palette.InkSoft) }
-            }
+            Text(
+                "うろぼえ",
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Black,
+                color = Palette.Ink,
+                modifier = Modifier.padding(top = 14.dp),
+            )
         }
 
         if (saveFailed) {
@@ -647,9 +634,9 @@ fun SingleScreen(
                         .padding(horizontal = 12.dp, vertical = 8.dp),
                 ) {
                     Text(
-                        "保存に失敗しました。空き容量を確認し、念のため「データを書き出す」で控えを取ってください。",
+                        "保存に失敗しました。空き容量を確認し、念のため一番下の「その他」→「データを書き出す」で控えを取ってください。",
                         color = Palette.Orange,
-                        fontSize = 12.sp,
+                        fontSize = 12.5.sp,
                         fontWeight = FontWeight.Bold,
                     )
                 }
@@ -664,11 +651,11 @@ fun SingleScreen(
                 ) {
                     FloatingMemoMotif(centered = true, elevatedTop = true)
                     Spacer(Modifier.height(22.dp))
-                    Text("まだメモがありません", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
+                    Text("まだメモがありません", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
                     Spacer(Modifier.height(6.dp))
                     Text(
                         "右下の＋から、「いつかやろう」を1行書いてみて",
-                        fontSize = 13.5.sp,
+                        fontSize = 12.5.sp,
                         color = Palette.InkSoft,
                     )
                 }
@@ -676,19 +663,17 @@ fun SingleScreen(
         } else {
             // 上段：そろそろやろう（忘却曲線順）
             item {
-                val countText = if (dueCount > 0) "忘れかけ ${dueCount}件 / 全${activeMemos.size}件" else "${activeMemos.size}件"
                 SectionTitle(
                     text = "そろそろやろう",
-                    countLabel = countText,
+                    countLabel = "${activeMemos.size}件",
                     color = Palette.Pink,
-                    hint = if (activeMemos.isNotEmpty()) "右でまたあとで ・ 左で保留" else null,
                 )
             }
             if (activeMemos.isEmpty()) {
                 item {
                     Text(
                         "いま上段にあるメモはありません。右下の＋で追加するか、下段から戻せます。",
-                        fontSize = 13.sp,
+                        fontSize = 12.5.sp,
                         color = Palette.InkSoft,
                         modifier = Modifier.padding(vertical = 10.dp),
                     )
@@ -710,23 +695,17 @@ fun SingleScreen(
                         onEndToStart = { onMoveToSomeday(memo) },
                     ) {
                         MemoCardShell(onClick = { onOpenDetail(memo.id) }) {
-                            Row(
-                                Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text(
-                                    MemoLogic.elapsedLabel(memo.createdAt, now),
-                                    fontSize = 12.sp,
-                                    color = Palette.InkSoft,
-                                )
-                                // v0.4.3：「そろそろやる」宣言中のピルを優先表示する
-                                val pillText = when {
-                                    memo.willDoAt != null -> "そろそろやる"
-                                    showDuePill -> "忘れかけ"
-                                    else -> null
-                                }
-                                if (pillText != null) {
+                            // v0.5：経過日数は整理で削除。ピルがある時だけ右上に出す
+                            val pillText = when {
+                                memo.willDoAt != null -> "そろそろやる"
+                                showDuePill -> "忘れかけ"
+                                else -> null
+                            }
+                            if (pillText != null) {
+                                Row(
+                                    Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.End,
+                                ) {
                                     Box(
                                         Modifier
                                             .clip(RoundedCornerShape(999.dp))
@@ -735,18 +714,18 @@ fun SingleScreen(
                                     ) {
                                         Text(
                                             pillText,
-                                            fontSize = 12.sp,
+                                            fontSize = 12.5.sp,
                                             color = Palette.Pink,
                                             fontWeight = FontWeight.Bold,
                                         )
                                     }
                                 }
+                                Spacer(Modifier.height(5.dp))
                             }
-                            Spacer(Modifier.height(5.dp))
                             Text(
                                 memo.title,
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 15.5.sp,
+                                fontSize = 15.sp,
                                 color = Palette.Ink,
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,
@@ -761,9 +740,9 @@ fun SingleScreen(
                                 Spacer(Modifier.height(3.dp))
                                 Text(
                                     previewBody,
-                                    fontSize = 13.sp,
+                                    fontSize = 12.5.sp,
                                     color = Palette.InkSoft,
-                                    maxLines = 3,
+                                    maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                 )
                             }
@@ -771,7 +750,7 @@ fun SingleScreen(
                                 Spacer(Modifier.height(3.dp))
                                 Text(
                                     "クイズ形式 ・ タップで答えを見る",
-                                    fontSize = 12.sp,
+                                    fontSize = 12.5.sp,
                                     color = Palette.InkSoft,
                                 )
                             }
@@ -784,10 +763,10 @@ fun SingleScreen(
             if (somedayMemos.isNotEmpty()) {
                 item {
                     SectionTitle(
-                        text = "いつかやればいい",
+                        // v0.5：ヒント文は消したが「自動浮上なし」は下段の役割そのものなので見出しに残す（SPEC §4）
+                        text = "いつかやればいい（自動浮上なし）",
                         countLabel = "${somedayMemos.size}件",
                         color = Palette.InkSoft,
-                        hint = "自動浮上なし ・ 右で戻す ・ 左で削除",
                     )
                 }
                 items(somedayMemos, key = { "someday_${it.id}" }) { memo ->
@@ -816,7 +795,7 @@ fun SingleScreen(
                             ) {
                                 Text(
                                     memo.title,
-                                    fontSize = 14.5.sp,
+                                    fontSize = 12.5.sp,
                                     color = Palette.Ink,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
@@ -825,7 +804,7 @@ fun SingleScreen(
                                 Spacer(Modifier.width(8.dp))
                                 Text(
                                     MemoLogic.elapsedLabel(memo.createdAt, now),
-                                    fontSize = 12.sp,
+                                    fontSize = 12.5.sp,
                                     color = Palette.InkSoft,
                                 )
                             }
@@ -835,14 +814,33 @@ fun SingleScreen(
             }
         }
 
-        // フッター（設定は小さく一番下）
+        // フッター（v0.5：低頻度の管理は「その他」に集約し、常時表示から外した）
         item {
+            var menuOpen by remember { mutableStateOf(false) }
             Spacer(Modifier.height(26.dp))
             Box(Modifier.fillMaxWidth().height(1.dp).background(Palette.Line))
-            Column(Modifier.fillMaxWidth().padding(top = 6.dp)) {
-                TextButton(onClick = onAbout) { Text("このアプリについて", fontSize = 12.5.sp, color = Palette.InkSoft) }
-                TextButton(onClick = onExport) { Text("データを書き出す", fontSize = 12.5.sp, color = Palette.InkSoft) }
-                TextButton(onClick = onWipe) { Text("データをすべて消す", fontSize = 12.5.sp, color = Palette.Orange) }
+            Box(Modifier.padding(top = 6.dp)) {
+                TextButton(onClick = { menuOpen = true }) {
+                    Text("その他", fontSize = 12.5.sp, color = Palette.InkSoft)
+                }
+                DropdownMenu(
+                    expanded = menuOpen,
+                    onDismissRequest = { menuOpen = false },
+                    containerColor = Palette.CardWhite,
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("このアプリについて", fontSize = 12.5.sp, color = Palette.Ink) },
+                        onClick = { menuOpen = false; onAbout() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("データを書き出す", fontSize = 12.5.sp, color = Palette.Ink) },
+                        onClick = { menuOpen = false; onExport() },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("データをすべて消す", fontSize = 12.5.sp, color = Palette.Orange) },
+                        onClick = { menuOpen = false; onWipe() },
+                    )
+                }
             }
         }
     }
@@ -885,7 +883,7 @@ fun WriteScreen(onDismiss: () -> Unit, onSave: (String) -> Unit) {
                     enabled = canSave && !submitted,
                 ) {
                     Text(
-                        "保存", fontSize = 15.5.sp, fontWeight = FontWeight.Bold,
+                        "保存", fontSize = 15.sp, fontWeight = FontWeight.Bold,
                         color = if (canSave) Palette.Pink else Palette.InkSoft.copy(alpha = 0.45f),
                     )
                 }
@@ -914,15 +912,12 @@ fun WriteScreen(onDismiss: () -> Unit, onSave: (String) -> Unit) {
             if (body.length >= 900) {
                 Text(
                     "あと${1000 - body.length}字まで書けます",
-                    fontSize = 12.sp, color = Palette.InkSoft,
+                    fontSize = 12.5.sp, color = Palette.InkSoft,
                     modifier = Modifier.padding(top = 4.dp),
                 )
             }
-            Text(
-                "分類はしなくてOK。忘れかけた頃に上へ浮かびます。",
-                fontSize = 12.sp, color = Palette.InkSoft,
-                modifier = Modifier.padding(top = 8.dp, bottom = 12.dp),
-            )
+            // v0.5：底の説明文は整理で削除した（オンボーディングで伝える）
+            Spacer(Modifier.height(12.dp))
         }
     }
     if (confirmDiscard) {
@@ -1014,30 +1009,27 @@ fun EditScreen(
                     modifier = Modifier.semantics { contentDescription = "編集を1つ元に戻す" },
                 ) {
                     Text(
-                        "↩ 戻す", fontSize = 14.sp, fontWeight = FontWeight.Bold,
+                        "↩ 戻す", fontSize = 12.5.sp, fontWeight = FontWeight.Bold,
                         color = if (undoStack.isNotEmpty()) Palette.Pink else Palette.InkSoft.copy(alpha = 0.45f),
                     )
                 }
             }
-            val statusText = if (memo.lowPriority) "いつかやればいい" else "そろそろやろう"
-            // v0.4.3：寝かせ具合（忘れかけ／次の浮上まで／宣言中）を状態行の下に1行で出す
+            // v0.5：状態は1行に統合（日付 ・ 寝かせ具合）。西暦と「作成：」は落とした
             val dueLabel = MemoLogic.dueStatusLabel(memo, now)
             val dueEmphasis = memo.willDoAt != null || MemoLogic.isDueForReview(memo, now)
-            Text(
-                "作成：${fmtDateFull(memo.createdAt)} ・ $statusText",
-                fontSize = 12.sp,
-                color = Palette.InkSoft,
-                modifier = Modifier.padding(top = 2.dp, bottom = if (dueLabel != null) 2.dp else 10.dp),
-            )
-            if (dueLabel != null) {
-                Text(
-                    dueLabel,
-                    fontSize = 12.sp,
-                    fontWeight = if (dueEmphasis) FontWeight.Bold else FontWeight.Normal,
-                    color = if (dueEmphasis) Palette.Pink else Palette.InkSoft,
-                    modifier = Modifier.padding(bottom = 10.dp),
-                )
+            val dateShort = SimpleDateFormat("M月d日", Locale.JAPAN).format(Date(memo.createdAt))
+            val statusLine = if (memo.lowPriority) {
+                "$dateShort ・ いつかやればいい"
+            } else {
+                "$dateShort ・ ${dueLabel ?: "そろそろやろう"}"
             }
+            Text(
+                statusLine,
+                fontSize = 12.5.sp,
+                fontWeight = if (dueEmphasis) FontWeight.Bold else FontWeight.Normal,
+                color = if (dueEmphasis) Palette.Pink else Palette.InkSoft,
+                modifier = Modifier.padding(top = 2.dp, bottom = 10.dp),
+            )
             Column(
                 Modifier
                     .fillMaxWidth()
@@ -1048,12 +1040,12 @@ fun EditScreen(
                     BasicTextField(
                         value = question,
                         onValueChange = { val v = it.take(1000); pushHistory(1); question = v; persist(body, v, answer) },
-                        textStyle = TextStyle(fontSize = 18.sp, color = Palette.Ink, fontWeight = FontWeight.Bold, lineHeight = 27.sp),
+                        textStyle = TextStyle(fontSize = 17.sp, color = Palette.Ink, fontWeight = FontWeight.Bold, lineHeight = 27.sp),
                         cursorBrush = SolidColor(Palette.Pink),
                         modifier = Modifier.fillMaxWidth(),
                         decorationBox = { inner ->
                             if (question.isEmpty()) {
-                                Text("質問", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Palette.InkSoft)
+                                Text("質問", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = Palette.InkSoft)
                             }
                             inner()
                         },
@@ -1064,18 +1056,18 @@ fun EditScreen(
                             onClick = { quizAnswerRevealed = true },
                             shape = RoundedCornerShape(999.dp),
                         ) {
-                            Text("タップで答えを表示・編集", color = Palette.Pink, fontSize = 13.5.sp)
+                            Text("タップで答えを表示・編集", color = Palette.Pink, fontSize = 12.5.sp)
                         }
                     } else {
                         BasicTextField(
                             value = answer,
                             onValueChange = { val v = it.take(1000); pushHistory(2); answer = v; persist(body, question, v) },
-                            textStyle = TextStyle(fontSize = 16.5.sp, color = Palette.Ink, lineHeight = 26.sp),
+                            textStyle = TextStyle(fontSize = 17.sp, color = Palette.Ink, lineHeight = 26.sp),
                             cursorBrush = SolidColor(Palette.Pink),
                             modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 160.dp),
                             decorationBox = { inner ->
                                 if (answer.isEmpty()) {
-                                    Text("答え", fontSize = 16.5.sp, color = Palette.InkSoft)
+                                    Text("答え", fontSize = 17.sp, color = Palette.InkSoft)
                                 }
                                 inner()
                             },
@@ -1097,12 +1089,15 @@ fun EditScreen(
                     )
                 }
             }
-            Text(
-                if (isEmptyWarning) "空のままでは保存されません（元の内容が残ります）。" else "入力すると自動で保存されます。",
-                fontSize = 12.sp,
-                color = if (isEmptyWarning) Palette.Orange else Palette.InkSoft,
-                modifier = Modifier.padding(top = 8.dp),
-            )
+            // v0.5：「自動で保存されます」の常駐注記は整理で削除。空の警告だけ後出しで出す
+            if (isEmptyWarning) {
+                Text(
+                    "空のままでは保存されません（元の内容が残ります）。",
+                    fontSize = 12.5.sp,
+                    color = Palette.Orange,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+            }
             if (!memo.lowPriority) {
                 // v0.4.3：主役は「そろそろやる／まだやらない」の選択。完了は「やった」に改名。
                 val committed = memo.willDoAt != null
@@ -1121,7 +1116,7 @@ fun EditScreen(
                         ) {
                             Text(
                                 "やった",
-                                fontSize = 13.sp,
+                                fontSize = 12.5.sp,
                                 fontWeight = FontWeight.Bold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -1137,7 +1132,7 @@ fun EditScreen(
                         ) {
                             Text(
                                 "そろそろやる",
-                                fontSize = 13.sp,
+                                fontSize = 12.5.sp,
                                 fontWeight = FontWeight.Bold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -1152,7 +1147,7 @@ fun EditScreen(
                     ) {
                         Text(
                             "まだやらない",
-                            fontSize = 13.sp,
+                            fontSize = 12.5.sp,
                             color = Palette.Ink,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -1172,7 +1167,7 @@ fun EditScreen(
                     ) {
                         Text(
                             "下段へ",
-                            fontSize = 13.sp,
+                            fontSize = 12.5.sp,
                             color = Palette.InkSoft,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -1187,7 +1182,7 @@ fun EditScreen(
                         ) {
                             Text(
                                 "やった",
-                                fontSize = 13.sp,
+                                fontSize = 12.5.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Palette.Pink,
                                 maxLines = 1,
@@ -1210,7 +1205,7 @@ fun EditScreen(
                     ) {
                         Text(
                             "上段へ戻す",
-                            fontSize = 13.sp,
+                            fontSize = 12.5.sp,
                             color = Palette.Pink,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
@@ -1224,7 +1219,7 @@ fun EditScreen(
                     ) {
                         Text(
                             "削除する",
-                            fontSize = 13.sp,
+                            fontSize = 12.5.sp,
                             color = Palette.Orange,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -1297,14 +1292,14 @@ fun OnboardingScreen(
             if (page == 0) {
                 Text(
                     "「いつかやろう」を「そろそろやろう」に",
-                    fontSize = 13.sp,
+                    fontSize = 12.5.sp,
                     fontWeight = FontWeight.Bold,
                     color = Palette.Pink,
                     letterSpacing = 1.sp,
                 )
                 Spacer(Modifier.height(10.dp))
             }
-            Text(pages[page].first, fontSize = 26.sp, fontWeight = FontWeight.Black, color = Palette.Ink)
+            Text(pages[page].first, fontSize = 24.sp, fontWeight = FontWeight.Black, color = Palette.Ink)
             Spacer(Modifier.height(12.dp))
             if (page == 1) {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -1331,7 +1326,7 @@ fun OnboardingScreen(
                         ) {
                             Text(
                                 if (selected) "${type.first} ✓" else type.first,
-                                fontSize = 16.sp, fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp, fontWeight = FontWeight.Bold,
                                 color = if (selected) Palette.Pink else Palette.Ink,
                             )
                         }
@@ -1343,10 +1338,10 @@ fun OnboardingScreen(
                     Text(types[idx].second, fontSize = 15.sp, color = Palette.InkSoft, lineHeight = 25.sp)
                 }
                 if (selectedType < 0) {
-                    Text("当てはまるものを、タップしてみて。", fontSize = 13.5.sp, color = Palette.InkSoft)
+                    Text("当てはまるものを、タップしてみて。", fontSize = 12.5.sp, color = Palette.InkSoft)
                 }
             } else {
-                Text(pages[page].second, fontSize = 16.sp, color = Palette.InkSoft, lineHeight = 26.sp)
+                Text(pages[page].second, fontSize = 15.sp, color = Palette.InkSoft, lineHeight = 26.sp)
             }
             Spacer(Modifier.height(34.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -1365,7 +1360,7 @@ fun OnboardingScreen(
                     colors = ButtonDefaults.buttonColors(containerColor = Palette.Pink),
                     shape = RoundedCornerShape(999.dp),
                     modifier = Modifier.fillMaxWidth(),
-                ) { Text("つぎへ", fontSize = 16.sp) }
+                ) { Text("つぎへ", fontSize = 15.sp) }
                 TextButton(onClick = { confirmSkip = true }, modifier = Modifier.fillMaxWidth()) {
                     Text("スキップ", color = Palette.InkSoft)
                 }
@@ -1375,7 +1370,7 @@ fun OnboardingScreen(
                     colors = ButtonDefaults.buttonColors(containerColor = Palette.Pink),
                     shape = RoundedCornerShape(999.dp),
                     modifier = Modifier.fillMaxWidth(),
-                ) { Text("はじめる", fontSize = 16.sp) }
+                ) { Text("はじめる", fontSize = 15.sp) }
             }
         }
     }
