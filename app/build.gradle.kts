@@ -2,6 +2,7 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("io.github.takahirom.roborazzi")
 }
 
 android {
@@ -60,6 +61,26 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+    // 実機なし検証の標準（2026-11-23）：Robolectric＋Roborazzi で主要画面を JVM 上で検証する
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+            all {
+                it.maxHeapSize = "1024m"
+                // Robolectric のネイティブライブラリ展開先をプロジェクト内に寄せる
+                // （この VM の /tmp は 512MB の tmpfs で、他プロジェクトの展開残りで埋まると展開に失敗する）
+                it.systemProperty("java.io.tmpdir", rootDir.resolve(".local/tmp").absolutePath)
+                // この VM では Java の直通ネットワークが使えないため、Robolectric の
+                // ランタイム取得もローカル mirror 経由にする（mirror は build.sh が設定した時だけ有効）
+                val mirror = System.getenv("UROBOE_MIRROR")
+                if (mirror != null) {
+                    it.systemProperty("robolectric.dependency.repo.url", "$mirror/central")
+                    it.systemProperty("robolectric.dependency.repo.id", "mirror")
+                    it.systemProperty("java.net.preferIPv4Stack", "true")
+                }
+            }
+        }
+    }
 }
 
 dependencies {
@@ -75,4 +96,11 @@ dependencies {
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
+    // 実機なし検証の標準（2026-11-23）
+    testImplementation(platform("androidx.compose:compose-bom:2024.12.01"))
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    testImplementation("androidx.compose.ui:ui-test-manifest")
+    testImplementation("org.robolectric:robolectric:4.16.1")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi:1.79.0")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi-compose:1.79.0")
 }

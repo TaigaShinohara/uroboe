@@ -12,3 +12,7 @@ captures/
 .local/
 screenshots/
 *.log
+
+# ただし画面検証のゴールデン（テストデータのみで描画したもの）は検証に必要なので公開する
+!app/src/test/screenshots/
+!app/src/test/screenshots/*.png
