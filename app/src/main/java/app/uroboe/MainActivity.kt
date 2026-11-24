@@ -27,8 +27,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
@@ -606,12 +608,15 @@ fun SingleScreen(
     val highlightedDueIds = remember(activeMemos, now) { MemoLogic.highlightedDueIds(activeMemos, now) }
     val somedayMemos = remember(data.memos) { MemoLogic.sortSomeday(data.memos) }
 
-    LazyColumn(
-        Modifier.fillMaxSize().padding(horizontal = 16.dp),
+    // v0.5.2：本人の指示でメモは二列グリッド表示に変更（見出し類は全幅）
+    LazyVerticalGrid(
+        columns = GridCells.Fixed(2),
+        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
         contentPadding = PaddingValues(bottom = 96.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         // ヘッダー（v0.5：日付と「使い方」は整理で削除。使い方は「その他」→Aboutから開ける）
-        item {
+        item(span = { GridItemSpan(maxLineSpan) }) {
             Text(
                 "うろぼえ",
                 fontSize = 24.sp,
@@ -622,7 +627,7 @@ fun SingleScreen(
         }
 
         if (saveFailed) {
-            item {
+            item(span = { GridItemSpan(maxLineSpan) }) {
                 Box(
                     Modifier
                         .fillMaxWidth()
@@ -642,7 +647,7 @@ fun SingleScreen(
         }
 
         if (data.memos.isEmpty()) {
-            item {
+            item(span = { GridItemSpan(maxLineSpan) }) {
                 Column(
                     Modifier.fillMaxWidth().padding(top = 84.dp, bottom = 24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -660,7 +665,7 @@ fun SingleScreen(
             }
         } else {
             // 上段：そろそろやろう（忘却曲線順）
-            item {
+            item(span = { GridItemSpan(maxLineSpan) }) {
                 SectionTitle(
                     text = "そろそろやろう",
                     countLabel = "${activeMemos.size}件",
@@ -668,7 +673,7 @@ fun SingleScreen(
                 )
             }
             if (activeMemos.isEmpty()) {
-                item {
+                item(span = { GridItemSpan(maxLineSpan) }) {
                     Text(
                         "いま上段にあるメモはありません。右下の＋で追加するか、下段から戻せます。",
                         fontSize = 12.5.sp,
@@ -680,7 +685,7 @@ fun SingleScreen(
                 items(activeMemos, key = { "active_${it.id}" }) { memo ->
                     val showDuePill = memo.id in highlightedDueIds
                     SwipeableMemoWrapper(
-                        modifier = Modifier.animateItem(),
+                        modifier = Modifier.animateItem().fillMaxSize(),
                         enableStartToEnd = true,
                         enableEndToStart = true,
                         startToEndLabel = "またあとで →",
@@ -692,7 +697,7 @@ fun SingleScreen(
                         onStartToEnd = { onDefer(memo) },
                         onEndToStart = { onMoveToSomeday(memo) },
                     ) {
-                        MemoCardShell(onClick = { onOpenDetail(memo.id) }) {
+                        MemoCardShell(onClick = { onOpenDetail(memo.id) }, modifier = Modifier.fillMaxSize()) {
                             // v0.5：経過日数は整理で削除。ピルがある時だけ右上に出す
                             val pillText = when {
                                 memo.willDoAt != null -> "そろそろやる"
@@ -759,7 +764,7 @@ fun SingleScreen(
 
             // 下段：いつかやればいい（自動浮上なしの保留）
             if (somedayMemos.isNotEmpty()) {
-                item {
+                item(span = { GridItemSpan(maxLineSpan) }) {
                     SectionTitle(
                         // v0.5：ヒント文は消したが「自動浮上なし」は下段の役割そのものなので見出しに残す（SPEC §4）
                         text = "いつかやればいい（自動浮上なし）",
@@ -769,7 +774,7 @@ fun SingleScreen(
                 }
                 items(somedayMemos, key = { "someday_${it.id}" }) { memo ->
                     SwipeableMemoWrapper(
-                        modifier = Modifier.animateItem(),
+                        modifier = Modifier.animateItem().fillMaxSize(),
                         enableStartToEnd = true,
                         enableEndToStart = true,
                         startToEndLabel = "↑ そろそろやろうへ戻す",
@@ -783,29 +788,24 @@ fun SingleScreen(
                     ) {
                         MemoCardShell(
                             onClick = { onOpenDetail(memo.id) },
+                            modifier = Modifier.fillMaxSize(),
                             containerColor = Palette.SomedayCard,
                             elevationDp = 0f,
                         ) {
-                            Row(
-                                Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text(
-                                    memo.title,
-                                    fontSize = 12.5.sp,
-                                    color = Palette.Ink,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(1f),
-                                )
-                                Spacer(Modifier.width(8.dp))
-                                Text(
-                                    MemoLogic.elapsedLabel(memo.createdAt, now),
-                                    fontSize = 12.5.sp,
-                                    color = Palette.InkSoft,
-                                )
-                            }
+                            // v0.5.2：二列化で横幅が狭くなるため、題名と経過日数は横並びから縦積みに変更
+                            Text(
+                                memo.title,
+                                fontSize = 12.5.sp,
+                                color = Palette.Ink,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Spacer(Modifier.height(3.dp))
+                            Text(
+                                MemoLogic.elapsedLabel(memo.createdAt, now),
+                                fontSize = 12.5.sp,
+                                color = Palette.InkSoft,
+                            )
                         }
                     }
                 }
@@ -813,7 +813,7 @@ fun SingleScreen(
         }
 
         // フッター（v0.5：低頻度の管理は「その他」に集約し、常時表示から外した）
-        item {
+        item(span = { GridItemSpan(maxLineSpan) }) {
             var menuOpen by remember { mutableStateOf(false) }
             Spacer(Modifier.height(26.dp))
             Box(Modifier.fillMaxWidth().height(1.dp).background(Palette.Line))
