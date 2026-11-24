@@ -38,7 +38,7 @@ object TestFixtures {
 
     fun waitingMemo() = Memo(
         id = 4L,
-        body = "読みかけの本の続きを読む\n第3章から。付箋のところ。",
+        body = "読みかけの本の続きを読む\n第3章から。付箋のところ。\n感想をメモして、\n来週また読み返す。",
         createdAt = NOW - 3 * HOUR,
         lastReviewedAt = NOW - 3 * HOUR,
         enteredActiveAt = NOW - 3 * HOUR,
@@ -47,7 +47,7 @@ object TestFixtures {
 
     fun somedayMemo() = Memo(
         id = 5L,
-        body = "いつか行きたい温泉リストを作る",
+        body = "いつか行きたい温泉リストを作る\n草津と別府は外せない。\n雪の季節に行きたい。",
         createdAt = NOW - 10 * DAY,
         lastReviewedAt = NOW - 10 * DAY,
         lowPriority = true,

@@ -745,7 +745,8 @@ fun SingleScreen(
                                     previewBody,
                                     fontSize = 12.5.sp,
                                     color = Palette.InkSoft,
-                                    maxLines = 1,
+                                    // v0.5.3：二列化で横幅が狭くなり1行では本文がほぼ読めないため3行まで出す（本人の指示）
+                                    maxLines = 3,
                                     overflow = TextOverflow.Ellipsis,
                                 )
                             }
@@ -800,6 +801,22 @@ fun SingleScreen(
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,
                             )
+                            // v0.5.3：下段にも本文プレビューを出す（本人の指示）。上段と同じく題名行を除いた残りを2行まで
+                            val somedayPreview = if (memo.isQuiz) "" else memo.body.lineSequence()
+                                .dropWhile { it.isBlank() }
+                                .drop(1)
+                                .joinToString("\n")
+                                .trim()
+                            if (somedayPreview.isNotBlank()) {
+                                Spacer(Modifier.height(3.dp))
+                                Text(
+                                    somedayPreview,
+                                    fontSize = 12.5.sp,
+                                    color = Palette.InkSoft,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
                             Spacer(Modifier.height(3.dp))
                             Text(
                                 MemoLogic.elapsedLabel(memo.createdAt, now),
