@@ -1,5 +1,6 @@
 package app.uroboe
 
+import android.content.Context
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasSetTextAction
@@ -29,6 +30,26 @@ class UiInteractionTest {
 
     @get:Rule
     val composeRule = createAndroidComposeRule<ComponentActivity>()
+
+    /**
+     * v0.6.0 の回帰防止：画面振り分け（AnimatedContent）にホームの受け皿が無く、
+     * 起動しても何も表示されない不具合があった。個別画面ではなくアプリ本体
+     * （UroboeApp）を組み立てて、ホームに実際に内容が出ることを確認する。
+     */
+    @Test
+    fun app_home_rendersContent() {
+        val context = composeRule.activity
+        context.getSharedPreferences("uroboe_prefs", Context.MODE_PRIVATE)
+            .edit().putBoolean("onboarded", true).apply()
+        val store = MemoStore(context)
+        composeRule.setContent {
+            UroboeTheme {
+                UroboeApp(store)
+            }
+        }
+        composeRule.onNodeWithText("うろぼえ").assertIsDisplayed()
+        composeRule.onNodeWithText("まだメモがありません").assertIsDisplayed()
+    }
 
     @Test
     fun home_tapCard_opensDetail() {

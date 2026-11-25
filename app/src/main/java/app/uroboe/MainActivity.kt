@@ -307,7 +307,9 @@ fun UroboeApp(store: MemoStore) {
                 onUpdate = { id, body -> store.editBody(id, body, null, null) },
                 onDiscardNew = { id -> store.deleteNow(id) },
             )
-            2 -> if (detailMemo != null) {
+            // key=2 は詳細、key=3 はホーム。詳細が無い間はどちらもホームを表示する
+            // （v0.6.0 の不具合：key=3 の受け皿が無く、起動直後のホームが真っ白になった）
+            2, 3 -> if (detailMemo != null) {
         EditScreen(
             memo = detailMemo,
             now = now,
@@ -520,7 +522,7 @@ fun UroboeApp(store: MemoStore) {
             title = { Text("うろぼえ について") },
             text = {
                 Text(
-                    "「いつかやろう」を「そろそろやろう」に変えるメモ帳。\nバージョン 0.6.0\n\n" +
+                    "「いつかやろう」を「そろそろやろう」に変えるメモ帳。\nバージョン 0.6.1\n\n" +
                         "書いたメモは勝手には消えず、忘却曲線に沿って忘れかけたものが上へ浮かびます。\n\n" +
                         "上段のメモは右スワイプで「またあとで」、左スワイプで「いつかやればいい」（自動浮上なしの保留）へ分けられます。データはこの端末の中だけにあります。\n\n" +
                         "アプリを削除（アンインストール）すると、メモもすべて消えます。大事なメモは、画面いちばん下の「その他」→「データを書き出す」から控えを取っておけます。"
