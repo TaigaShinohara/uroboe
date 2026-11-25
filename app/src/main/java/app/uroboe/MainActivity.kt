@@ -11,7 +11,10 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -23,6 +26,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -63,6 +68,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.ripple
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Shapes
@@ -90,6 +96,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -219,6 +226,8 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun UroboeApp(store: MemoStore) {
     val context = LocalContext.current
+    // v0.7.0：アプリ全体の触覚フィードバックの入口
+    val haptic = LocalHapticFeedback.current
     val prefs = remember { context.getSharedPreferences("uroboe_prefs", Context.MODE_PRIVATE) }
     val data by store.data.collectAsState()
     val notice by store.notice.collectAsState()
@@ -369,7 +378,10 @@ fun UroboeApp(store: MemoStore) {
             },
             floatingActionButton = {
                 ExtendedFloatingActionButton(
-                    onClick = { writeOpen = true },
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        writeOpen = true
+                    },
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
                     contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
                     icon = { Text("＋", fontSize = 20.sp, fontWeight = FontWeight.Bold) },
@@ -461,6 +473,7 @@ fun UroboeApp(store: MemoStore) {
                                     Spacer(Modifier.width(6.dp))
                                     TextButton(
                                         onClick = {
+                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                             store.undoLatestNotice()
                                             now = store.effectiveNow()
                                         },
@@ -493,6 +506,7 @@ fun UroboeApp(store: MemoStore) {
             confirmButton = {
                 TextButton(
                     onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         store.deleteNow(id)
                         if (detailId == id) detailId = null
                         confirmDeleteId = null
@@ -515,7 +529,10 @@ fun UroboeApp(store: MemoStore) {
             title = { Text("データをすべて消しますか？") },
             text = { Text("すべてのメモと記録が完全に消えます。元に戻せません。") },
             confirmButton = {
-                TextButton(onClick = { store.deleteAll(); confirmWipe = false }) {
+                TextButton(onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    store.deleteAll(); confirmWipe = false
+                }) {
                     Text("すべて消す", color = Palette.Orange, fontWeight = FontWeight.Bold)
                 }
             },
@@ -532,7 +549,7 @@ fun UroboeApp(store: MemoStore) {
             title = { Text("うろぼえ について") },
             text = {
                 Text(
-                    "「いつかやろう」を「そろそろやろう」に変えるメモ帳。\nバージョン 0.6.2\n\n" +
+                    "「いつかやろう」を「そろそろやろう」に変えるメモ帳。\nバージョン 0.7.0\n\n" +
                         "書いたメモは勝手には消えず、忘却曲線に沿って忘れかけたものが上へ浮かびます。\n\n" +
                         "メモを長押しするとメニューが出て、「またあとで」「いつかやればいい」（自動浮上なしの保留）などへ分けられます。データはこの端末の中だけにあります。\n\n" +
                         "アプリを削除（アンインストール）すると、メモもすべて消えます。大事なメモは、画面いちばん下の「その他」→「データを書き出す」から控えを取っておけます。"
@@ -621,13 +638,24 @@ private fun MemoCardShell(
     elevationDp: Float = 1f,
     content: @Composable () -> Unit,
 ) {
+    // v0.7.0：押している間だけ少し沈む「押し感」を付け、触った手応えを返す
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val pressScale by animateFloatAsState(
+        targetValue = if (pressed) 0.97f else 1f,
+        animationSpec = tween(durationMillis = 150),
+        label = "cardPressScale",
+    )
     Card(
         modifier = modifier
             .fillMaxWidth()
             .padding(vertical = 5.dp)
+            .graphicsLayer { scaleX = pressScale; scaleY = pressScale }
             .then(
                 if (onClick != null || onLongClick != null) {
                     Modifier.combinedClickable(
+                        interactionSource = interactionSource,
+                        indication = ripple(),
                         onClick = { onClick?.invoke() },
                         onLongClick = onLongClick,
                     )
@@ -651,8 +679,12 @@ private fun MenuActionRow(
     danger: Boolean = false,
     onClick: () -> Unit,
 ) {
+    val haptic = LocalHapticFeedback.current
     Surface(
-        onClick = onClick,
+        onClick = {
+            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            onClick()
+        },
         shape = MaterialTheme.shapes.large,
         color = when {
             danger -> MaterialTheme.colorScheme.errorContainer
@@ -706,6 +738,11 @@ fun SingleScreen(
     val openMenu: (Memo) -> Unit = { memo ->
         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
         menuMemo = memo
+    }
+    // v0.7.0：カードのタップにも軽い触覚を返し、「触れた」感触をそろえる
+    val openDetail: (Memo) -> Unit = { memo ->
+        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        onOpenDetail(memo.id)
     }
 
     // v0.5.2：本人の指示でメモは二列グリッド表示に変更（見出し類は全幅）
@@ -774,7 +811,7 @@ fun SingleScreen(
                 items(activeMemos, key = { "active_${it.id}" }) { memo ->
                     val showDuePill = memo.id in highlightedDueIds
                     MemoCardShell(
-                        onClick = { onOpenDetail(memo.id) },
+                        onClick = { openDetail(memo) },
                         onLongClick = { openMenu(memo) },
                         modifier = Modifier.animateItem().fillMaxSize(),
                     ) {
@@ -852,7 +889,7 @@ fun SingleScreen(
                 }
                 items(somedayMemos, key = { "someday_${it.id}" }) { memo ->
                     MemoCardShell(
-                        onClick = { onOpenDetail(memo.id) },
+                        onClick = { openDetail(memo) },
                         onLongClick = { openMenu(memo) },
                         modifier = Modifier.animateItem().fillMaxSize(),
                         containerColor = Palette.SomedayCard,
@@ -1035,7 +1072,12 @@ fun WriteScreen(
                     },
                 )
             }
-            if (body.length >= 900) {
+            // v0.7.0：残り字数の注意は、ふわっと出入りさせる
+            AnimatedVisibility(
+                visible = body.length >= 900,
+                enter = fadeIn(tween(200)) + expandVertically(tween(200)),
+                exit = fadeOut(tween(150)) + shrinkVertically(tween(150)),
+            ) {
                 Text(
                     "あと${1000 - body.length}字まで書けます",
                     fontSize = 12.5.sp, color = Palette.InkSoft,
@@ -1064,7 +1106,14 @@ private fun DetailActionButton(
     onClick: () -> Unit,
     kind: DetailButtonKind,
     modifier: Modifier = Modifier,
+    hapticType: HapticFeedbackType = HapticFeedbackType.TextHandleMove,
 ) {
+    // v0.7.0：ボタンの重さに合わせた触覚を返してから実行する
+    val haptic = LocalHapticFeedback.current
+    val wrappedClick: () -> Unit = {
+        haptic.performHapticFeedback(hapticType)
+        onClick()
+    }
     val content: @Composable () -> Unit = {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
@@ -1085,7 +1134,7 @@ private fun DetailActionButton(
     val padding = PaddingValues(horizontal = 10.dp, vertical = 10.dp)
     when (kind) {
         DetailButtonKind.Filled -> Button(
-            onClick = onClick,
+            onClick = wrappedClick,
             modifier = modifier,
             shape = RoundedCornerShape(999.dp),
             colors = ButtonDefaults.buttonColors(
@@ -1095,7 +1144,7 @@ private fun DetailActionButton(
             contentPadding = padding,
         ) { content() }
         DetailButtonKind.Tonal -> FilledTonalButton(
-            onClick = onClick,
+            onClick = wrappedClick,
             modifier = modifier,
             shape = RoundedCornerShape(999.dp),
             colors = ButtonDefaults.filledTonalButtonColors(
@@ -1105,7 +1154,7 @@ private fun DetailActionButton(
             contentPadding = padding,
         ) { content() }
         DetailButtonKind.Outlined -> OutlinedButton(
-            onClick = onClick,
+            onClick = wrappedClick,
             modifier = modifier,
             shape = RoundedCornerShape(999.dp),
             colors = ButtonDefaults.outlinedButtonColors(
@@ -1114,7 +1163,7 @@ private fun DetailActionButton(
             contentPadding = padding,
         ) { content() }
         DetailButtonKind.Danger -> OutlinedButton(
-            onClick = onClick,
+            onClick = wrappedClick,
             modifier = modifier,
             shape = RoundedCornerShape(999.dp),
             colors = ButtonDefaults.outlinedButtonColors(
@@ -1225,13 +1274,20 @@ fun EditScreen(
             } else {
                 "$dateShort ・ ${dueLabel ?: "そろそろやろう"}"
             }
-            Text(
-                statusLine,
-                fontSize = 12.5.sp,
-                fontWeight = if (dueEmphasis) FontWeight.Bold else FontWeight.Normal,
-                color = if (dueEmphasis) Palette.Pink else Palette.InkSoft,
-                modifier = Modifier.padding(top = 2.dp, bottom = 10.dp),
-            )
+            // v0.7.0：状態が変わったら、1行表示はフェードで切り替える
+            AnimatedContent(
+                targetState = statusLine,
+                transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(200)) },
+                label = "statusLine",
+            ) { line ->
+                Text(
+                    line,
+                    fontSize = 12.5.sp,
+                    fontWeight = if (dueEmphasis) FontWeight.Bold else FontWeight.Normal,
+                    color = if (dueEmphasis) Palette.Pink else Palette.InkSoft,
+                    modifier = Modifier.padding(top = 2.dp, bottom = 10.dp),
+                )
+            }
             Column(
                 Modifier
                     .fillMaxWidth()
@@ -1253,14 +1309,22 @@ fun EditScreen(
                         },
                     )
                     Box(Modifier.fillMaxWidth().padding(vertical = 14.dp).height(1.dp).background(Palette.Line))
-                    if (!quizAnswerRevealed) {
+                    // v0.7.0：答えは「開く」動き（広がり＋フェード）で出す
+                    AnimatedVisibility(
+                        visible = !quizAnswerRevealed,
+                        exit = fadeOut(tween(150)),
+                    ) {
                         OutlinedButton(
                             onClick = { quizAnswerRevealed = true },
                             shape = RoundedCornerShape(999.dp),
                         ) {
                             Text("タップで答えを表示・編集", color = Palette.Pink, fontSize = 12.5.sp)
                         }
-                    } else {
+                    }
+                    AnimatedVisibility(
+                        visible = quizAnswerRevealed,
+                        enter = expandVertically(tween(250)) + fadeIn(tween(250)),
+                    ) {
                         BasicTextField(
                             value = answer,
                             onValueChange = { val v = it.take(1000); pushHistory(2); answer = v; persist(body, question, v) },
@@ -1321,6 +1385,7 @@ fun EditScreen(
                             text = "やった",
                             caption = "一覧から消える",
                             onClick = onComplete,
+                            hapticType = HapticFeedbackType.LongPress,
                             kind = DetailButtonKind.Filled,
                             modifier = Modifier.weight(1f),
                         )
@@ -1358,6 +1423,7 @@ fun EditScreen(
                             text = "やった",
                             caption = "一覧から消える",
                             onClick = onComplete,
+                            hapticType = HapticFeedbackType.LongPress,
                             kind = DetailButtonKind.Tonal,
                             modifier = Modifier.weight(1f),
                         )
@@ -1543,7 +1609,10 @@ fun OnboardingScreen(
             Spacer(Modifier.height(20.dp))
             if (page < pages.lastIndex) {
                 Button(
-                    onClick = { page = (page + 1).coerceAtMost(pages.lastIndex) },
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        page = (page + 1).coerceAtMost(pages.lastIndex)
+                    },
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("つぎへ") }
                 TextButton(onClick = { confirmSkip = true }, modifier = Modifier.fillMaxWidth()) {
@@ -1551,7 +1620,10 @@ fun OnboardingScreen(
                 }
             } else {
                 Button(
-                    onClick = onDone,
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onDone()
+                    },
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text("はじめる") }
             }
