@@ -6,7 +6,9 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import org.junit.Assert.assertEquals
@@ -62,6 +64,7 @@ class UiInteractionTest {
                     saveFailed = false,
                     onOpenDetail = { openedId = it }, onDefer = {}, onMoveToSomeday = {},
                     onMoveToActive = {}, onRequestDelete = {},
+                    onWillDo = {}, onComplete = {},
                     onWipe = {}, onAbout = {}, onExport = {},
                 )
             }
@@ -81,6 +84,7 @@ class UiInteractionTest {
                     saveFailed = false,
                     onOpenDetail = {}, onDefer = {}, onMoveToSomeday = {},
                     onMoveToActive = {}, onRequestDelete = {},
+                    onWillDo = {}, onComplete = {},
                     onWipe = {}, onAbout = {}, onExport = { exported = true },
                 )
             }
@@ -114,6 +118,30 @@ class UiInteractionTest {
         // 全部消すと作りかけは破棄される
         composeRule.onNode(hasSetTextAction()).performTextClearance()
         assertEquals(listOf(42L), discarded)
+    }
+
+    @Test
+    fun home_longPressCard_opensMenuAndMovesToSomeday() {
+        var somedayId: Long? = null
+        composeRule.setContent {
+            UroboeTheme {
+                SingleScreen(
+                    data = StoreData(TestFixtures.sampleMemos()),
+                    now = TestFixtures.NOW,
+                    saveFailed = false,
+                    onOpenDetail = {}, onDefer = {},
+                    onMoveToSomeday = { somedayId = it.id },
+                    onMoveToActive = {}, onRequestDelete = {},
+                    onWillDo = {}, onComplete = {},
+                    onWipe = {}, onAbout = {}, onExport = {},
+                )
+            }
+        }
+        // v0.6.2：スワイプ廃止。長押しでメニューが開き、「いつかやればいいへ」で保留へ回る
+        composeRule.onNodeWithText("確定申告の領収書をまとめる")
+            .performSemanticsAction(SemanticsActions.OnLongClick)
+        composeRule.onNodeWithText("いつかやればいいへ").performClick()
+        assertEquals(TestFixtures.dueMemo().id, somedayId)
     }
 
     @Test

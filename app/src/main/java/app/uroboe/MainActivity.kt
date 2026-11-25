@@ -20,7 +20,9 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -60,19 +62,17 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Surface
-import androidx.compose.material3.SwipeToDismissBox
-import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.Typography
 import androidx.compose.material3.lightColorScheme
-import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -402,6 +402,16 @@ fun UroboeApp(store: MemoStore) {
                     onRequestDelete = { memo ->
                         confirmDeleteId = memo.id
                     },
+                    onWillDo = { memo ->
+                        store.setWillDo(memo.id)
+                        now = store.effectiveNow()
+                        store.postNotice("「そろそろやる」に決めました", "元に戻す", memo)
+                    },
+                    onComplete = { memo ->
+                        store.deleteNow(memo.id)
+                        now = store.effectiveNow()
+                        store.postNotice("「やった」で片づけました", "元に戻す", memo)
+                    },
                     onWipe = { confirmWipe = true },
                     onAbout = { showAbout = true },
                     onExport = {
@@ -522,9 +532,9 @@ fun UroboeApp(store: MemoStore) {
             title = { Text("うろぼえ について") },
             text = {
                 Text(
-                    "「いつかやろう」を「そろそろやろう」に変えるメモ帳。\nバージョン 0.6.1\n\n" +
+                    "「いつかやろう」を「そろそろやろう」に変えるメモ帳。\nバージョン 0.6.2\n\n" +
                         "書いたメモは勝手には消えず、忘却曲線に沿って忘れかけたものが上へ浮かびます。\n\n" +
-                        "上段のメモは右スワイプで「またあとで」、左スワイプで「いつかやればいい」（自動浮上なしの保留）へ分けられます。データはこの端末の中だけにあります。\n\n" +
+                        "メモを長押しするとメニューが出て、「またあとで」「いつかやればいい」（自動浮上なしの保留）などへ分けられます。データはこの端末の中だけにあります。\n\n" +
                         "アプリを削除（アンインストール）すると、メモもすべて消えます。大事なメモは、画面いちばん下の「その他」→「データを書き出す」から控えを取っておけます。"
                 )
             },
@@ -601,9 +611,11 @@ private fun SectionTitle(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun MemoCardShell(
     onClick: (() -> Unit)?,
+    onLongClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
     containerColor: Color = Palette.CardWhite,
     elevationDp: Float = 1f,
@@ -613,7 +625,14 @@ private fun MemoCardShell(
         modifier = modifier
             .fillMaxWidth()
             .padding(vertical = 5.dp)
-            .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier),
+            .then(
+                if (onClick != null || onLongClick != null) {
+                    Modifier.combinedClickable(
+                        onClick = { onClick?.invoke() },
+                        onLongClick = onLongClick,
+                    )
+                } else Modifier
+            ),
         shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(containerColor = containerColor),
         elevation = CardDefaults.cardElevation(defaultElevation = elevationDp.dp),
@@ -622,85 +641,46 @@ private fun MemoCardShell(
     }
 }
 
-@Composable
-private fun SwipeableMemoWrapper(
-    enableStartToEnd: Boolean,
-    enableEndToStart: Boolean,
-    startToEndLabel: String,
-    startToEndBg: Color,
-    startToEndColor: Color,
-    endToStartLabel: String,
-    endToStartBg: Color,
-    endToStartColor: Color,
-    onStartToEnd: () -> Unit,
-    onEndToStart: () -> Unit,
-    modifier: Modifier = Modifier,
-    content: @Composable () -> Unit,
-) {
-    val haptic = LocalHapticFeedback.current
-    val currentOnStartToEnd by rememberUpdatedState(onStartToEnd)
-    val currentOnEndToStart by rememberUpdatedState(onEndToStart)
-    val dismissState = rememberSwipeToDismissBoxState(
-        confirmValueChange = { value ->
-            when (value) {
-                SwipeToDismissBoxValue.StartToEnd -> enableStartToEnd
-                SwipeToDismissBoxValue.EndToStart -> enableEndToStart
-                SwipeToDismissBoxValue.Settled -> true
-            }
-        },
-        positionalThreshold = { totalDistance -> totalDistance * 0.40f },
-    )
-    LaunchedEffect(dismissState.currentValue) {
-        when (dismissState.currentValue) {
-            SwipeToDismissBoxValue.StartToEnd -> {
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                currentOnStartToEnd()
-                dismissState.snapTo(SwipeToDismissBoxValue.Settled)
-            }
-            SwipeToDismissBoxValue.EndToStart -> {
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                currentOnEndToStart()
-                dismissState.snapTo(SwipeToDismissBoxValue.Settled)
-            }
-            SwipeToDismissBoxValue.Settled -> Unit
-        }
-    }
-    SwipeToDismissBox(
-        state = dismissState,
-        modifier = modifier,
-        enableDismissFromStartToEnd = enableStartToEnd,
-        enableDismissFromEndToStart = enableEndToStart,
-        backgroundContent = {
-            val dir = dismissState.dismissDirection
-            val isStartToEnd = dir == SwipeToDismissBoxValue.StartToEnd
-            val bg = when (dir) {
-                SwipeToDismissBoxValue.StartToEnd -> startToEndBg
-                SwipeToDismissBoxValue.EndToStart -> endToStartBg
-                SwipeToDismissBoxValue.Settled -> Color.Transparent
-            }
-            val fg = if (isStartToEnd) startToEndColor else endToStartColor
-            val label = if (isStartToEnd) startToEndLabel else endToStartLabel
-            val align = if (isStartToEnd) Alignment.CenterStart else Alignment.CenterEnd
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .padding(vertical = 5.dp)
-                    .clip(MaterialTheme.shapes.large)
-                    .background(bg)
-                    .padding(horizontal = 20.dp),
-                contentAlignment = align,
-            ) {
-                if (dir != SwipeToDismissBoxValue.Settled) {
-                    Text(label, color = fg, style = MaterialTheme.typography.labelMedium)
-                }
-            }
-        },
-        content = { content() },
-    )
-}
-
 // ---------------- 単一画面（全件一覧：上段＝忘却曲線順、下段＝いつかやればいい） ----------------
 
+@Composable
+private fun MenuActionRow(
+    text: String,
+    caption: String,
+    primary: Boolean = false,
+    danger: Boolean = false,
+    onClick: () -> Unit,
+) {
+    Surface(
+        onClick = onClick,
+        shape = MaterialTheme.shapes.large,
+        color = when {
+            danger -> MaterialTheme.colorScheme.errorContainer
+            primary -> MaterialTheme.colorScheme.primaryContainer
+            else -> MaterialTheme.colorScheme.surfaceContainer
+        },
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+    ) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+            Text(
+                text,
+                style = MaterialTheme.typography.labelLarge,
+                color = when {
+                    danger -> MaterialTheme.colorScheme.onErrorContainer
+                    primary -> MaterialTheme.colorScheme.onPrimaryContainer
+                    else -> MaterialTheme.colorScheme.onSurface
+                },
+            )
+            Text(
+                caption,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SingleScreen(
     data: StoreData,
@@ -711,6 +691,8 @@ fun SingleScreen(
     onMoveToSomeday: (Memo) -> Unit,
     onMoveToActive: (Memo) -> Unit,
     onRequestDelete: (Memo) -> Unit,
+    onWillDo: (Memo) -> Unit,
+    onComplete: (Memo) -> Unit,
     onWipe: () -> Unit,
     onAbout: () -> Unit,
     onExport: () -> Unit,
@@ -718,6 +700,13 @@ fun SingleScreen(
     val activeMemos = remember(data.memos, now) { MemoLogic.sortActiveByForgettingCurve(data.memos, now) }
     val highlightedDueIds = remember(activeMemos, now) { MemoLogic.highlightedDueIds(activeMemos, now) }
     val somedayMemos = remember(data.memos) { MemoLogic.sortSomeday(data.memos) }
+    // v0.6.2：スワイプは誤操作が多いという本人の声で廃止し、長押しメニューに置き換えた
+    var menuMemo by remember { mutableStateOf<Memo?>(null) }
+    val haptic = LocalHapticFeedback.current
+    val openMenu: (Memo) -> Unit = { memo ->
+        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+        menuMemo = memo
+    }
 
     // v0.5.2：本人の指示でメモは二列グリッド表示に変更（見出し類は全幅）
     LazyVerticalGrid(
@@ -784,20 +773,11 @@ fun SingleScreen(
             } else {
                 items(activeMemos, key = { "active_${it.id}" }) { memo ->
                     val showDuePill = memo.id in highlightedDueIds
-                    SwipeableMemoWrapper(
+                    MemoCardShell(
+                        onClick = { onOpenDetail(memo.id) },
+                        onLongClick = { openMenu(memo) },
                         modifier = Modifier.animateItem().fillMaxSize(),
-                        enableStartToEnd = true,
-                        enableEndToStart = true,
-                        startToEndLabel = "またあとで →",
-                        startToEndBg = Palette.PinkBg,
-                        startToEndColor = Palette.Pink,
-                        endToStartLabel = "↓ いつかやればいいへ",
-                        endToStartBg = Palette.Line,
-                        endToStartColor = Palette.Ink,
-                        onStartToEnd = { onDefer(memo) },
-                        onEndToStart = { onMoveToSomeday(memo) },
                     ) {
-                        MemoCardShell(onClick = { onOpenDetail(memo.id) }, modifier = Modifier.fillMaxSize()) {
                             // v0.5：経過日数は整理で削除。ピルがある時だけ右上に出す
                             val pillText = when {
                                 memo.willDoAt != null -> "そろそろやる"
@@ -856,7 +836,6 @@ fun SingleScreen(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
-                        }
                     }
                 }
             }
@@ -872,25 +851,13 @@ fun SingleScreen(
                     )
                 }
                 items(somedayMemos, key = { "someday_${it.id}" }) { memo ->
-                    SwipeableMemoWrapper(
+                    MemoCardShell(
+                        onClick = { onOpenDetail(memo.id) },
+                        onLongClick = { openMenu(memo) },
                         modifier = Modifier.animateItem().fillMaxSize(),
-                        enableStartToEnd = true,
-                        enableEndToStart = true,
-                        startToEndLabel = "↑ そろそろやろうへ戻す",
-                        startToEndBg = Palette.PinkBg,
-                        startToEndColor = Palette.Pink,
-                        endToStartLabel = "削除",
-                        endToStartBg = Palette.OrangeBg,
-                        endToStartColor = Palette.Orange,
-                        onStartToEnd = { onMoveToActive(memo) },
-                        onEndToStart = { onRequestDelete(memo) },
+                        containerColor = Palette.SomedayCard,
+                        elevationDp = 0f,
                     ) {
-                        MemoCardShell(
-                            onClick = { onOpenDetail(memo.id) },
-                            modifier = Modifier.fillMaxSize(),
-                            containerColor = Palette.SomedayCard,
-                            elevationDp = 0f,
-                        ) {
                             // v0.5.2：二列化で横幅が狭くなるため、題名と経過日数は横並びから縦積みに変更
                             Text(
                                 memo.title,
@@ -921,7 +888,6 @@ fun SingleScreen(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
-                        }
                     }
                 }
             }
@@ -953,6 +919,49 @@ fun SingleScreen(
                         text = { Text("データをすべて消す", color = MaterialTheme.colorScheme.error) },
                         onClick = { menuOpen = false; onWipe() },
                     )
+                }
+            }
+        }
+    }
+
+    // v0.6.2：長押しメニュー（M3 ボトムシート）。スワイプ廃止後の状態変更の入口
+    val currentMenuMemo = menuMemo
+    if (currentMenuMemo != null) {
+        ModalBottomSheet(
+            onDismissRequest = { menuMemo = null },
+            containerColor = MaterialTheme.colorScheme.surface,
+        ) {
+            Column(Modifier.padding(horizontal = 20.dp).padding(bottom = 28.dp)) {
+                Text(
+                    currentMenuMemo.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(10.dp))
+                if (!currentMenuMemo.lowPriority) {
+                    if (currentMenuMemo.willDoAt == null) {
+                        MenuActionRow("そろそろやる", "いちばん上に固定", primary = true) {
+                            onWillDo(currentMenuMemo); menuMemo = null
+                        }
+                    }
+                    MenuActionRow("まだやらない", "次の節目まで後まわし") {
+                        onDefer(currentMenuMemo); menuMemo = null
+                    }
+                    MenuActionRow("いつかやればいいへ", "下段に保留する") {
+                        onMoveToSomeday(currentMenuMemo); menuMemo = null
+                    }
+                    MenuActionRow("やった", "一覧から消える") {
+                        onComplete(currentMenuMemo); menuMemo = null
+                    }
+                } else {
+                    MenuActionRow("そろそろやろうへ戻す", "上段の先頭に戻る", primary = true) {
+                        onMoveToActive(currentMenuMemo); menuMemo = null
+                    }
+                    MenuActionRow("削除する", "完全削除・戻せない", danger = true) {
+                        onRequestDelete(currentMenuMemo); menuMemo = null
+                    }
                 }
             }
         }
@@ -1418,8 +1427,8 @@ fun OnboardingScreen(
             true,
         ),
         Triple(
-            "さばき方は、スワイプひとつ",
-            "右にスワイプで「またあとで」、\n左にスワイプで「いつかやればいい」（保留）へ。\n開いた画面では「そろそろやる」か「まだやらない」かを選べて、やれたら「やった」で完了です。\n※アプリを削除すると、メモもすべて消えます。",
+            "さばき方は、長押しひとつ",
+            "カードを長押しするとメニューが出て、\n「またあとで」「いつかやればいい」（保留）「やった」を選べます。\n開いた画面では「そろそろやる」か「まだやらない」かを選べて、やれたら「やった」で完了です。\n※アプリを削除すると、メモもすべて消えます。",
             true,
         ),
     )

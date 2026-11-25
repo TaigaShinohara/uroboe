@@ -73,6 +73,7 @@ class ScreenshotTest {
                     saveFailed = false,
                     onOpenDetail = {}, onDefer = {}, onMoveToSomeday = {},
                     onMoveToActive = {}, onRequestDelete = {},
+                    onWillDo = {}, onComplete = {},
                     onWipe = {}, onAbout = {}, onExport = {},
                 )
             }
@@ -93,6 +94,7 @@ class ScreenshotTest {
                     saveFailed = false,
                     onOpenDetail = {}, onDefer = {}, onMoveToSomeday = {},
                     onMoveToActive = {}, onRequestDelete = {},
+                    onWillDo = {}, onComplete = {},
                     onWipe = {}, onAbout = {}, onExport = {},
                 )
             }
