@@ -1,7 +1,6 @@
 package app.uroboe
 
 import androidx.activity.ComponentActivity
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -35,7 +34,7 @@ class UiInteractionTest {
     fun home_tapCard_opensDetail() {
         var openedId: Long? = null
         composeRule.setContent {
-            MaterialTheme {
+            UroboeTheme {
                 SingleScreen(
                     data = StoreData(TestFixtures.sampleMemos()),
                     now = TestFixtures.NOW,
@@ -54,7 +53,7 @@ class UiInteractionTest {
     fun home_otherMenu_exportIsReachable() {
         var exported = false
         composeRule.setContent {
-            MaterialTheme {
+            UroboeTheme {
                 SingleScreen(
                     data = StoreData(TestFixtures.sampleMemos()),
                     now = TestFixtures.NOW,
@@ -76,7 +75,7 @@ class UiInteractionTest {
         val updated = mutableListOf<Pair<Long, String>>()
         val discarded = mutableListOf<Long>()
         composeRule.setContent {
-            MaterialTheme {
+            UroboeTheme {
                 WriteScreen(
                     onDismiss = {},
                     onCreate = { body -> created.add(body); 42L },
@@ -100,7 +99,7 @@ class UiInteractionTest {
     fun onboarding_advancesAndFinishes() {
         var done = false
         composeRule.setContent {
-            MaterialTheme {
+            UroboeTheme {
                 OnboardingScreen(onDone = { done = true })
             }
         }

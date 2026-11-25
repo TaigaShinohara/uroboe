@@ -4,11 +4,8 @@ import androidx.activity.ComponentActivity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -42,19 +39,10 @@ class ScreenshotTest {
     @get:Rule
     val composeRule = createAndroidComposeRule<ComponentActivity>()
 
-    /** 実アプリ（MainActivity）と同じテーマと紙背景を再現する */
+    /** 実アプリ（MainActivity）と同じテーマと紙背景を再現する（v0.6.0：UroboeTheme が正本） */
     @Composable
     private fun AppShell(content: @Composable () -> Unit) {
-        MaterialTheme(
-            colorScheme = lightColorScheme(
-                primary = Palette.Pink,
-                background = Palette.Paper,
-                surface = Palette.CardWhite,
-                onBackground = Palette.Ink,
-                onSurface = Palette.Ink,
-                onPrimary = Color.White,
-            )
-        ) {
+        UroboeTheme {
             Box(Modifier.fillMaxSize().background(Palette.Paper)) { content() }
         }
     }

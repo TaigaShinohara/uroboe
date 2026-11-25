@@ -7,7 +7,17 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -44,15 +54,23 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Shapes
 import androidx.compose.material3.Surface
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.Typography
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
@@ -105,6 +123,76 @@ object Palette {
     /** 落ち着いた濃い橙（対白 5.5:1 / 対紙色 5.3:1 / 対 OrangeBg 4.9:1）。赤は使わない。 */
     val Orange = Color(0xFFB83B00)
     val OrangeBg = Color(0xFFFFF0E3)
+    /** M3 の outline 用の中間トーン（紙色とのコントラスト約3.4:1）。 */
+    val Outline = Color(0xFF8A7D68)
+}
+
+/**
+ * v0.6.0：Material Design 3 のテーマ正本。
+ * ブランド色（Palette）を M3 の色の役割（colorScheme）へ割り当て、
+ * 文字階層（Typography）と形（Shapes）も M3 のスケールで統一する。
+ * error 役割にはブランド方針（赤は使わない）に沿って濃い橙を当てる。
+ * 画面側は原則として MaterialTheme の役割経由で色・文字・形を引く。
+ */
+private val UroboeTypography = Typography(
+    headlineSmall = TextStyle(fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 32.sp),
+    titleLarge = TextStyle(fontSize = 20.sp, fontWeight = FontWeight.Bold, lineHeight = 27.sp),
+    titleMedium = TextStyle(fontSize = 15.sp, fontWeight = FontWeight.Bold, lineHeight = 21.sp),
+    titleSmall = TextStyle(fontSize = 12.5.sp, fontWeight = FontWeight.Bold, lineHeight = 18.sp, letterSpacing = 0.8.sp),
+    bodyLarge = TextStyle(fontSize = 15.sp, lineHeight = 26.sp),
+    bodyMedium = TextStyle(fontSize = 14.sp, lineHeight = 22.sp),
+    bodySmall = TextStyle(fontSize = 12.5.sp, lineHeight = 18.sp),
+    labelLarge = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.Bold, lineHeight = 20.sp),
+    labelMedium = TextStyle(fontSize = 12.5.sp, fontWeight = FontWeight.Bold, lineHeight = 16.sp),
+)
+
+@Composable
+fun UroboeTheme(content: @Composable () -> Unit) {
+    MaterialTheme(
+        colorScheme = lightColorScheme(
+            primary = Palette.Pink,
+            onPrimary = Color.White,
+            primaryContainer = Palette.PinkBg,
+            onPrimaryContainer = Palette.Pink,
+            secondary = Palette.InkSoft,
+            onSecondary = Color.White,
+            secondaryContainer = Palette.SomedayCard,
+            onSecondaryContainer = Palette.Ink,
+            tertiary = Palette.Orange,
+            onTertiary = Color.White,
+            tertiaryContainer = Palette.OrangeBg,
+            onTertiaryContainer = Palette.Orange,
+            error = Palette.Orange,
+            onError = Color.White,
+            errorContainer = Palette.OrangeBg,
+            onErrorContainer = Palette.Orange,
+            background = Palette.Paper,
+            onBackground = Palette.Ink,
+            surface = Palette.CardWhite,
+            onSurface = Palette.Ink,
+            surfaceVariant = Palette.SomedayCard,
+            onSurfaceVariant = Palette.InkSoft,
+            surfaceContainerLowest = Palette.CardWhite,
+            surfaceContainerLow = Palette.Paper,
+            surfaceContainer = Palette.SomedayCard,
+            surfaceContainerHigh = Palette.Line,
+            surfaceContainerHighest = Palette.Line,
+            outline = Palette.Outline,
+            outlineVariant = Palette.Line,
+            inverseSurface = Palette.Ink,
+            inverseOnSurface = Palette.Paper,
+            inversePrimary = Palette.PinkBg,
+        ),
+        typography = UroboeTypography,
+        shapes = Shapes(
+            extraSmall = RoundedCornerShape(4.dp),
+            small = RoundedCornerShape(8.dp),
+            medium = RoundedCornerShape(12.dp),
+            large = RoundedCornerShape(16.dp),
+            extraLarge = RoundedCornerShape(28.dp),
+        ),
+        content = content,
+    )
 }
 
 class MainActivity : ComponentActivity() {
@@ -120,22 +208,14 @@ class MainActivity : ComponentActivity() {
         )
         val store = MemoStoreHolder.get(applicationContext)
         setContent {
-            MaterialTheme(
-                colorScheme = lightColorScheme(
-                    primary = Palette.Pink,
-                    background = Palette.Paper,
-                    surface = Palette.CardWhite,
-                    onBackground = Palette.Ink,
-                    onSurface = Palette.Ink,
-                    onPrimary = Color.White,
-                )
-            ) {
+            UroboeTheme {
                 UroboeApp(store)
             }
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun UroboeApp(store: MemoStore) {
     val context = LocalContext.current
@@ -193,32 +273,41 @@ fun UroboeApp(store: MemoStore) {
         }
     }
 
-    if (showOnboarding) {
-        OnboardingScreen(
-            onDone = {
-                prefs.edit().putBoolean("onboarded", true).apply()
-                showOnboarding = false
-            },
-            canExitToHome = prefs.getBoolean("onboarded", false),
-            onExit = { showOnboarding = false },
-            onSelectType = { prefs.edit().putInt("user_type", it).apply() },
-        )
-        return
-    }
-
-    if (writeOpen) {
-        // v0.5.1：保存ボタンは廃止し、書く画面も自動保存にした（詳細画面と同方式）
-        WriteScreen(
-            onDismiss = { writeOpen = false; now = store.effectiveNow() },
-            onCreate = { body -> store.addMemo(body).id },
-            onUpdate = { id, body -> store.editBody(id, body, null, null) },
-            onDiscardNew = { id -> store.deleteNow(id) },
-        )
-        return
-    }
-
     val detailMemo = detailId?.let { id -> data.memos.firstOrNull { it.id == id } }
-    if (detailMemo != null) {
+
+    // v0.6.0：画面遷移は M3 モーション（フェード＋わずかな横スライド）でつなぐ
+    val screenKey = when {
+        showOnboarding -> 0
+        writeOpen -> 1
+        detailMemo != null -> 2
+        else -> 3
+    }
+    AnimatedContent(
+        targetState = screenKey,
+        transitionSpec = {
+            ((fadeIn(tween(300)) + slideInHorizontally(tween(300)) { it / 10 }) togetherWith
+                fadeOut(tween(180))) using SizeTransform(clip = false)
+        },
+        label = "screenTransition",
+    ) { key ->
+        when (key) {
+            0 -> OnboardingScreen(
+                onDone = {
+                    prefs.edit().putBoolean("onboarded", true).apply()
+                    showOnboarding = false
+                },
+                canExitToHome = prefs.getBoolean("onboarded", false),
+                onExit = { showOnboarding = false },
+                onSelectType = { prefs.edit().putInt("user_type", it).apply() },
+            )
+            // v0.5.1：保存ボタンは廃止し、書く画面も自動保存にした（詳細画面と同方式）
+            1 -> WriteScreen(
+                onDismiss = { writeOpen = false; now = store.effectiveNow() },
+                onCreate = { body -> store.addMemo(body).id },
+                onUpdate = { id, body -> store.editBody(id, body, null, null) },
+                onDiscardNew = { id -> store.deleteNow(id) },
+            )
+            2 -> if (detailMemo != null) {
         EditScreen(
             memo = detailMemo,
             now = now,
@@ -263,17 +352,28 @@ fun UroboeApp(store: MemoStore) {
                 confirmDeleteId = detailMemo.id
             },
         )
-    } else {
-        Scaffold(
-            containerColor = Palette.Paper,
+            } else {
+                // v0.6.0：タイトルは M3 の TopAppBar へ、追加ボタンは Extended FAB（ラベル付き）へ
+                Scaffold(
+            containerColor = MaterialTheme.colorScheme.background,
+            topBar = {
+                TopAppBar(
+                    title = { Text("うろぼえ", style = MaterialTheme.typography.headlineSmall) },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = Palette.Paper,
+                        titleContentColor = Palette.Ink,
+                    ),
+                )
+            },
             floatingActionButton = {
-                FloatingActionButton(
+                ExtendedFloatingActionButton(
                     onClick = { writeOpen = true },
-                    shape = CircleShape,
-                    containerColor = Palette.Pink,
-                    contentColor = Color.White,
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    icon = { Text("＋", fontSize = 20.sp, fontWeight = FontWeight.Bold) },
+                    text = { Text("メモを書く", fontWeight = FontWeight.Bold) },
                     modifier = Modifier.semantics { contentDescription = "新しいメモを書く" },
-                ) { Text("＋", fontSize = 24.sp) }
+                )
             },
         ) { padding ->
             Box(Modifier.padding(padding).fillMaxSize()) {
@@ -311,52 +411,63 @@ fun UroboeApp(store: MemoStore) {
                         context.startActivity(Intent.createChooser(send, "データの控えを送る"))
                     },
                 )
-                notice?.let { current ->
-                    Surface(
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .padding(start = 16.dp, end = 84.dp, bottom = 18.dp)
-                            .semantics { liveRegion = LiveRegionMode.Polite },
-                        shape = RoundedCornerShape(999.dp),
-                        color = Palette.PinkBg,
-                        shadowElevation = 3.dp,
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(
-                                start = 16.dp,
-                                end = if (current.snapshot != null) 8.dp else 16.dp,
-                                top = 6.dp,
-                                bottom = 6.dp,
-                            ),
+                // v0.6.0：通知は M3 スナックバーの見た目（暗色面＋明色文字）にし、下からスライドインさせる。
+                // 退場アニメーションのために最後の通知を保持しておく（中身が先に消えると空の箱が下がってしまうため）
+                var lastNotice by remember { mutableStateOf<UndoNotice?>(null) }
+                LaunchedEffect(notice) { if (notice != null) lastNotice = notice }
+                AnimatedVisibility(
+                    visible = notice != null,
+                    enter = slideInVertically(tween(250)) { it } + fadeIn(tween(250)),
+                    exit = slideOutVertically(tween(200)) { it } + fadeOut(tween(200)),
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                ) {
+                    lastNotice?.let { current ->
+                        Surface(
+                            modifier = Modifier
+                                .padding(start = 16.dp, end = 16.dp, bottom = 88.dp)
+                                .semantics { liveRegion = LiveRegionMode.Polite },
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.inverseSurface,
+                            shadowElevation = 6.dp,
                         ) {
-                            Text(
-                                current.text,
-                                color = Palette.Pink,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 12.5.sp,
-                                modifier = Modifier.weight(1f, fill = false),
-                            )
-                            if (current.undoLabel != null && current.snapshot != null) {
-                                Spacer(Modifier.width(6.dp))
-                                TextButton(
-                                    onClick = {
-                                        store.undoLatestNotice()
-                                        now = store.effectiveNow()
-                                    },
-                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
-                                ) {
-                                    Text(
-                                        current.undoLabel,
-                                        color = Palette.Pink,
-                                        fontWeight = FontWeight.Black,
-                                        fontSize = 12.5.sp,
-                                    )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(
+                                    start = 16.dp,
+                                    end = if (current.snapshot != null) 8.dp else 16.dp,
+                                    top = 8.dp,
+                                    bottom = 8.dp,
+                                ),
+                            ) {
+                                Text(
+                                    current.text,
+                                    color = MaterialTheme.colorScheme.inverseOnSurface,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    modifier = Modifier.weight(1f, fill = false),
+                                )
+                                if (current.undoLabel != null && current.snapshot != null) {
+                                    Spacer(Modifier.width(6.dp))
+                                    TextButton(
+                                        onClick = {
+                                            store.undoLatestNotice()
+                                            now = store.effectiveNow()
+                                        },
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                                    ) {
+                                        Text(
+                                            current.undoLabel,
+                                            color = MaterialTheme.colorScheme.inversePrimary,
+                                            fontWeight = FontWeight.Bold,
+                                            style = MaterialTheme.typography.labelLarge,
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
                 }
+            }
+        }
             }
         }
     }
@@ -409,7 +520,7 @@ fun UroboeApp(store: MemoStore) {
             title = { Text("うろぼえ について") },
             text = {
                 Text(
-                    "「いつかやろう」を「そろそろやろう」に変えるメモ帳。\nバージョン 0.5.1\n\n" +
+                    "「いつかやろう」を「そろそろやろう」に変えるメモ帳。\nバージョン 0.6.0\n\n" +
                         "書いたメモは勝手には消えず、忘却曲線に沿って忘れかけたものが上へ浮かびます。\n\n" +
                         "上段のメモは右スワイプで「またあとで」、左スワイプで「いつかやればいい」（自動浮上なしの保留）へ分けられます。データはこの端末の中だけにあります。\n\n" +
                         "アプリを削除（アンインストール）すると、メモもすべて消えます。大事なメモは、画面いちばん下の「その他」→「データを書き出す」から控えを取っておけます。"
@@ -480,13 +591,11 @@ private fun SectionTitle(
         Text(
             text,
             color = color,
-            fontWeight = FontWeight.Bold,
-            fontSize = 12.5.sp,
-            letterSpacing = 0.8.sp,
+            style = MaterialTheme.typography.titleSmall,
             modifier = Modifier.weight(1f),
         )
         Spacer(Modifier.width(8.dp))
-        Text(countLabel, color = Palette.InkSoft, fontSize = 12.5.sp)
+        Text(countLabel, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
     }
 }
 
@@ -503,7 +612,7 @@ private fun MemoCardShell(
             .fillMaxWidth()
             .padding(vertical = 5.dp)
             .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier),
-        shape = RoundedCornerShape(16.dp),
+        shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(containerColor = containerColor),
         elevation = CardDefaults.cardElevation(defaultElevation = elevationDp.dp),
     ) {
@@ -574,13 +683,13 @@ private fun SwipeableMemoWrapper(
                 Modifier
                     .fillMaxSize()
                     .padding(vertical = 5.dp)
-                    .clip(RoundedCornerShape(16.dp))
+                    .clip(MaterialTheme.shapes.large)
                     .background(bg)
                     .padding(horizontal = 20.dp),
                 contentAlignment = align,
             ) {
                 if (dir != SwipeToDismissBoxValue.Settled) {
-                    Text(label, color = fg, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+                    Text(label, color = fg, style = MaterialTheme.typography.labelMedium)
                 }
             }
         },
@@ -615,32 +724,21 @@ fun SingleScreen(
         contentPadding = PaddingValues(bottom = 96.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        // ヘッダー（v0.5：日付と「使い方」は整理で削除。使い方は「その他」→Aboutから開ける）
-        item(span = { GridItemSpan(maxLineSpan) }) {
-            Text(
-                "うろぼえ",
-                fontSize = 24.sp,
-                fontWeight = FontWeight.Black,
-                color = Palette.Ink,
-                modifier = Modifier.padding(top = 14.dp),
-            )
-        }
-
+        // ヘッダー（アプリ名）は v0.6.0 で M3 の TopAppBar 側へ移した
         if (saveFailed) {
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Box(
                     Modifier
                         .fillMaxWidth()
                         .padding(top = 10.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Palette.OrangeBg)
+                        .clip(MaterialTheme.shapes.medium)
+                        .background(MaterialTheme.colorScheme.errorContainer)
                         .padding(horizontal = 12.dp, vertical = 8.dp),
                 ) {
                     Text(
                         "保存に失敗しました。空き容量を確認し、念のため一番下の「その他」→「データを書き出す」で控えを取ってください。",
-                        color = Palette.Orange,
-                        fontSize = 12.5.sp,
-                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        style = MaterialTheme.typography.labelMedium,
                     )
                 }
             }
@@ -654,12 +752,12 @@ fun SingleScreen(
                 ) {
                     FloatingMemoMotif(centered = true, elevatedTop = true)
                     Spacer(Modifier.height(22.dp))
-                    Text("まだメモがありません", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Palette.Ink)
+                    Text("まだメモがありません", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        "右下の＋から、「いつかやろう」を1行書いてみて",
-                        fontSize = 12.5.sp,
-                        color = Palette.InkSoft,
+                        "右下の「メモを書く」から、「いつかやろう」を1行書いてみて",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
@@ -675,9 +773,9 @@ fun SingleScreen(
             if (activeMemos.isEmpty()) {
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     Text(
-                        "いま上段にあるメモはありません。右下の＋で追加するか、下段から戻せます。",
-                        fontSize = 12.5.sp,
-                        color = Palette.InkSoft,
+                        "いま上段にあるメモはありません。右下の「メモを書く」で追加するか、下段から戻せます。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(vertical = 10.dp),
                     )
                 }
@@ -712,14 +810,13 @@ fun SingleScreen(
                                     Box(
                                         Modifier
                                             .clip(RoundedCornerShape(999.dp))
-                                            .background(Palette.PinkBg)
+                                            .background(MaterialTheme.colorScheme.primaryContainer)
                                             .padding(horizontal = 8.dp, vertical = 2.dp),
                                     ) {
                                         Text(
                                             pillText,
-                                            fontSize = 12.5.sp,
-                                            color = Palette.Pink,
-                                            fontWeight = FontWeight.Bold,
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = MaterialTheme.colorScheme.onPrimaryContainer,
                                         )
                                     }
                                 }
@@ -727,9 +824,8 @@ fun SingleScreen(
                             }
                             Text(
                                 memo.title,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 15.sp,
-                                color = Palette.Ink,
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,
                             )
@@ -743,8 +839,8 @@ fun SingleScreen(
                                 Spacer(Modifier.height(3.dp))
                                 Text(
                                     previewBody,
-                                    fontSize = 12.5.sp,
-                                    color = Palette.InkSoft,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     // v0.5.3：二列化で横幅が狭くなり1行では本文がほぼ読めないため3行まで出す（本人の指示）
                                     maxLines = 3,
                                     overflow = TextOverflow.Ellipsis,
@@ -754,8 +850,8 @@ fun SingleScreen(
                                 Spacer(Modifier.height(3.dp))
                                 Text(
                                     "クイズ形式 ・ タップで答えを見る",
-                                    fontSize = 12.5.sp,
-                                    color = Palette.InkSoft,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
                         }
@@ -796,8 +892,8 @@ fun SingleScreen(
                             // v0.5.2：二列化で横幅が狭くなるため、題名と経過日数は横並びから縦積みに変更
                             Text(
                                 memo.title,
-                                fontSize = 12.5.sp,
-                                color = Palette.Ink,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface,
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,
                             )
@@ -811,8 +907,8 @@ fun SingleScreen(
                                 Spacer(Modifier.height(3.dp))
                                 Text(
                                     somedayPreview,
-                                    fontSize = 12.5.sp,
-                                    color = Palette.InkSoft,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 2,
                                     overflow = TextOverflow.Ellipsis,
                                 )
@@ -820,8 +916,8 @@ fun SingleScreen(
                             Spacer(Modifier.height(3.dp))
                             Text(
                                 MemoLogic.elapsedLabel(memo.createdAt, now),
-                                fontSize = 12.5.sp,
-                                color = Palette.InkSoft,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                     }
@@ -836,23 +932,23 @@ fun SingleScreen(
             Box(Modifier.fillMaxWidth().height(1.dp).background(Palette.Line))
             Box(Modifier.padding(top = 6.dp)) {
                 TextButton(onClick = { menuOpen = true }) {
-                    Text("その他", fontSize = 12.5.sp, color = Palette.InkSoft)
+                    Text("その他", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+                // v0.6.0：メニューの面色は M3 標準（surfaceContainer）に任せる
                 DropdownMenu(
                     expanded = menuOpen,
                     onDismissRequest = { menuOpen = false },
-                    containerColor = Palette.CardWhite,
                 ) {
                     DropdownMenuItem(
-                        text = { Text("このアプリについて", fontSize = 12.5.sp, color = Palette.Ink) },
+                        text = { Text("このアプリについて") },
                         onClick = { menuOpen = false; onAbout() },
                     )
                     DropdownMenuItem(
-                        text = { Text("データを書き出す", fontSize = 12.5.sp, color = Palette.Ink) },
+                        text = { Text("データを書き出す") },
                         onClick = { menuOpen = false; onExport() },
                     )
                     DropdownMenuItem(
-                        text = { Text("データをすべて消す", fontSize = 12.5.sp, color = Palette.Orange) },
+                        text = { Text("データをすべて消す", color = MaterialTheme.colorScheme.error) },
                         onClick = { menuOpen = false; onWipe() },
                     )
                 }
@@ -863,6 +959,7 @@ fun SingleScreen(
 
 // ---------------- 書く（全画面・Google Keep風の枠なし1欄） ----------------
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WriteScreen(
     onDismiss: () -> Unit,
@@ -877,20 +974,25 @@ fun WriteScreen(
     BackHandler { onDismiss() }
     val focusRequester = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { focusRequester.requestFocus() } }
-    Surface(color = Palette.Paper, modifier = Modifier.fillMaxSize()) {
+    Surface(color = MaterialTheme.colorScheme.background, modifier = Modifier.fillMaxSize()) {
         Column(
-            Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding().padding(horizontal = 20.dp)
+            Modifier.fillMaxSize().navigationBarsPadding().imePadding()
         ) {
-            Row(
-                Modifier.fillMaxWidth().padding(top = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                TextButton(
-                    onClick = { onDismiss() },
-                    modifier = Modifier.semantics { contentDescription = "前の画面に戻る" },
-                ) { Text("←", fontSize = 20.sp, color = Palette.InkSoft) }
-            }
-            Spacer(Modifier.height(6.dp))
+            // v0.6.0：戻るは M3 の TopAppBar に集約
+            TopAppBar(
+                title = {},
+                navigationIcon = {
+                    IconButton(
+                        onClick = { onDismiss() },
+                        modifier = Modifier.semantics { contentDescription = "前の画面に戻る" },
+                    ) { Text("←", fontSize = 22.sp, color = Palette.InkSoft) }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = Palette.Paper,
+                    titleContentColor = Palette.Ink,
+                ),
+            )
+            Column(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
             Box(
                 Modifier
                     .fillMaxWidth()
@@ -931,12 +1033,97 @@ fun WriteScreen(
             }
             // v0.5：底の説明文は整理で削除した（オンボーディングで伝える）
             Spacer(Modifier.height(12.dp))
+            }
         }
     }
 }
 
+private enum class DetailButtonKind { Filled, Tonal, Outlined, Danger }
+
+/**
+ * 詳細画面の操作ボタン（v0.6.0）。
+ * 「ボタンが何か分からない」という本人の声に応え、主ラベルに
+ * 「押すとどうなるか」の一言キャプションを2段で添える。強調は M3 の階層
+ * （Filled＝主役／Tonal＝完了／Outlined＝副次／Danger＝削除）に従う。
+ */
+@Composable
+private fun DetailActionButton(
+    text: String,
+    caption: String,
+    onClick: () -> Unit,
+    kind: DetailButtonKind,
+    modifier: Modifier = Modifier,
+) {
+    val content: @Composable () -> Unit = {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                text,
+                style = MaterialTheme.typography.labelLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                caption,
+                style = MaterialTheme.typography.bodySmall,
+                color = LocalContentColor.current.copy(alpha = 0.75f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+    val padding = PaddingValues(horizontal = 10.dp, vertical = 10.dp)
+    when (kind) {
+        DetailButtonKind.Filled -> Button(
+            onClick = onClick,
+            modifier = modifier,
+            shape = RoundedCornerShape(999.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+            ),
+            contentPadding = padding,
+        ) { content() }
+        DetailButtonKind.Tonal -> FilledTonalButton(
+            onClick = onClick,
+            modifier = modifier,
+            shape = RoundedCornerShape(999.dp),
+            colors = ButtonDefaults.filledTonalButtonColors(
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+            ),
+            contentPadding = padding,
+        ) { content() }
+        DetailButtonKind.Outlined -> OutlinedButton(
+            onClick = onClick,
+            modifier = modifier,
+            shape = RoundedCornerShape(999.dp),
+            colors = ButtonDefaults.outlinedButtonColors(
+                contentColor = MaterialTheme.colorScheme.onSurface,
+            ),
+            contentPadding = padding,
+        ) { content() }
+        DetailButtonKind.Danger -> OutlinedButton(
+            onClick = onClick,
+            modifier = modifier,
+            shape = RoundedCornerShape(999.dp),
+            colors = ButtonDefaults.outlinedButtonColors(
+                contentColor = MaterialTheme.colorScheme.error,
+            ),
+            contentPadding = padding,
+        ) { content() }
+    }
+}
+
+/** 忘却曲線インターバルの短い表記（1時間／1日／3日／…）。 */
+private fun intervalShortLabel(ms: Long): String = when {
+    ms <= MemoLogic.HOUR_MS -> "1時間"
+    ms < 2 * MemoLogic.DAY_MS -> "1日"
+    else -> "${ms / MemoLogic.DAY_MS}日"
+}
+
 // ---------------- メモを開く（全画面・閲覧と編集・明示的な区切り操作） ----------------
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EditScreen(
     memo: Memo,
@@ -987,30 +1174,37 @@ fun EditScreen(
     }
     BackHandler { onBack() }
 
-    Surface(color = Palette.Paper, modifier = Modifier.fillMaxSize()) {
+    Surface(color = MaterialTheme.colorScheme.background, modifier = Modifier.fillMaxSize()) {
         Column(
-            Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding().padding(horizontal = 20.dp)
+            Modifier.fillMaxSize().navigationBarsPadding().imePadding()
         ) {
-            Row(
-                Modifier.fillMaxWidth().padding(top = 4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                TextButton(
-                    onClick = onBack,
-                    modifier = Modifier.semantics { contentDescription = "前の画面に戻る" },
-                ) { Text("←", fontSize = 20.sp, color = Palette.InkSoft) }
-                TextButton(
-                    onClick = { undo() },
-                    enabled = undoStack.isNotEmpty(),
-                    modifier = Modifier.semantics { contentDescription = "編集を1つ元に戻す" },
-                ) {
-                    Text(
-                        "↩ 戻す", fontSize = 12.5.sp, fontWeight = FontWeight.Bold,
-                        color = if (undoStack.isNotEmpty()) Palette.Pink else Palette.InkSoft.copy(alpha = 0.45f),
-                    )
-                }
-            }
+            // v0.6.0：戻る／元に戻すは M3 の TopAppBar に集約
+            TopAppBar(
+                title = {},
+                navigationIcon = {
+                    IconButton(
+                        onClick = onBack,
+                        modifier = Modifier.semantics { contentDescription = "前の画面に戻る" },
+                    ) { Text("←", fontSize = 22.sp, color = Palette.InkSoft) }
+                },
+                actions = {
+                    TextButton(
+                        onClick = { undo() },
+                        enabled = undoStack.isNotEmpty(),
+                        modifier = Modifier.semantics { contentDescription = "編集を1つ元に戻す" },
+                    ) {
+                        Text(
+                            "↩ 戻す", fontSize = 12.5.sp, fontWeight = FontWeight.Bold,
+                            color = if (undoStack.isNotEmpty()) Palette.Pink else Palette.InkSoft.copy(alpha = 0.45f),
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = Palette.Paper,
+                    titleContentColor = Palette.Ink,
+                ),
+            )
+            Column(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
             // v0.5：状態は1行に統合（日付 ・ 寝かせ具合）。西暦と「作成：」は落とした
             val dueLabel = MemoLogic.dueStatusLabel(memo, now)
             val dueEmphasis = memo.willDoAt != null || MemoLogic.isDueForReview(memo, now)
@@ -1096,133 +1290,90 @@ fun EditScreen(
                 )
             }
             if (!memo.lowPriority) {
-                // v0.4.3：主役は「そろそろやる／まだやらない」の選択。完了は「やった」に改名。
+                // v0.6.0：各ボタンに「押すとどうなるか」の一言を添えた（本人の「何か良くわからない」への対応）。
+                // 主役は「そろそろやる／まだやらない」の選択（v0.4.3）。完了は「やった」。
                 val committed = memo.willDoAt != null
+                // 「まだやらない」を押した後に次に浮上する時期（節目到達時は次ステージの間隔、未到達時は今の間隔）
+                val nextStage = if (MemoLogic.isDueForReview(memo, now)) {
+                    (memo.reviewStage + 1).coerceAtMost(MemoLogic.FORGETTING_INTERVALS_MS.lastIndex)
+                } else {
+                    memo.reviewStage
+                }
+                val deferCaption = "次は約${intervalShortLabel(MemoLogic.FORGETTING_INTERVALS_MS[nextStage])}後に浮上"
                 Row(
                     Modifier.fillMaxWidth().padding(top = 10.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     if (committed) {
-                        Button(
+                        DetailActionButton(
+                            text = "やった",
+                            caption = "一覧から消える",
                             onClick = onComplete,
-                            shape = RoundedCornerShape(999.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Palette.Pink),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+                            kind = DetailButtonKind.Filled,
                             modifier = Modifier.weight(1f),
-                        ) {
-                            Text(
-                                "やった",
-                                fontSize = 12.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
+                        )
                     } else {
-                        Button(
+                        DetailActionButton(
+                            text = "そろそろやる",
+                            caption = "いちばん上に固定",
                             onClick = onWillDo,
-                            shape = RoundedCornerShape(999.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Palette.Pink),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+                            kind = DetailButtonKind.Filled,
                             modifier = Modifier.weight(1f),
-                        ) {
-                            Text(
-                                "そろそろやる",
-                                fontSize = 12.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    }
-                    OutlinedButton(
-                        onClick = onDefer,
-                        shape = RoundedCornerShape(999.dp),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Text(
-                            "まだやらない",
-                            fontSize = 12.5.sp,
-                            color = Palette.Ink,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
                         )
                     }
+                    DetailActionButton(
+                        text = "まだやらない",
+                        caption = if (committed) "固定を外して後まわし" else deferCaption,
+                        onClick = onDefer,
+                        kind = DetailButtonKind.Outlined,
+                        modifier = Modifier.weight(1f),
+                    )
                 }
                 Row(
                     Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 12.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    OutlinedButton(
+                    DetailActionButton(
+                        text = "下段へ",
+                        caption = "いつかやればいいへ",
                         onClick = { onToggleLowPriority(true) },
-                        shape = RoundedCornerShape(999.dp),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                        kind = DetailButtonKind.Outlined,
                         modifier = Modifier.weight(1f),
-                    ) {
-                        Text(
-                            "下段へ",
-                            fontSize = 12.5.sp,
-                            color = Palette.InkSoft,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
+                    )
                     if (!committed) {
-                        OutlinedButton(
+                        DetailActionButton(
+                            text = "やった",
+                            caption = "一覧から消える",
                             onClick = onComplete,
-                            shape = RoundedCornerShape(999.dp),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
+                            kind = DetailButtonKind.Tonal,
                             modifier = Modifier.weight(1f),
-                        ) {
-                            Text(
-                                "やった",
-                                fontSize = 12.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Palette.Pink,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
+                        )
                     }
                 }
             } else {
                 Row(
                     Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    OutlinedButton(
+                    DetailActionButton(
+                        text = "上段へ戻す",
+                        caption = "上段の先頭に戻る",
                         onClick = { onToggleLowPriority(false) },
-                        shape = RoundedCornerShape(999.dp),
-                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+                        kind = DetailButtonKind.Tonal,
                         modifier = Modifier.weight(1f),
-                    ) {
-                        Text(
-                            "上段へ戻す",
-                            fontSize = 12.5.sp,
-                            color = Palette.Pink,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                    OutlinedButton(
+                    )
+                    DetailActionButton(
+                        text = "削除する",
+                        caption = "完全削除・戻せない",
                         onClick = onRequestDelete,
-                        shape = RoundedCornerShape(999.dp),
-                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
-                    ) {
-                        Text(
-                            "削除する",
-                            fontSize = 12.5.sp,
-                            color = Palette.Orange,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
+                        kind = DetailButtonKind.Danger,
+                        modifier = Modifier.weight(1f),
+                    )
                 }
+            }
             }
         }
     }
@@ -1275,7 +1426,7 @@ fun OnboardingScreen(
         "マルチタスクが苦手" to "同時に抱えなくて、いいんです。\n頭の中の「いつかやろう」は、ぜんぶここに預けてください。\n1つずつ向き合いたいあなたに、最適です。",
         "期限に追われたくない" to "締め切りは、ありません。\n「いつかやろう」が「そろそろやろう」に変わるまで、静かに並べて待っています。\n期限が苦手なあなたに、最適です。",
     )
-    Surface(color = Palette.Paper, modifier = Modifier.fillMaxSize()) {
+    Surface(color = MaterialTheme.colorScheme.background, modifier = Modifier.fillMaxSize()) {
         Column(
             Modifier
                 .fillMaxSize()
@@ -1284,21 +1435,29 @@ fun OnboardingScreen(
                 .padding(28.dp),
             verticalArrangement = Arrangement.Center,
         ) {
-            FloatingMemoMotif(centered = false, elevatedTop = pages[page].third)
+            // v0.6.0：ページ切り替えは M3 モーション（フェード＋わずかなスライド）でつなぐ
+            AnimatedContent(
+                targetState = page,
+                transitionSpec = {
+                    (fadeIn(tween(250)) + slideInHorizontally(tween(250)) { it / 12 }) togetherWith
+                        fadeOut(tween(150))
+                },
+                label = "onboardingPage",
+            ) { currentPage ->
+            Column {
+            FloatingMemoMotif(centered = false, elevatedTop = pages[currentPage].third)
             Spacer(Modifier.height(28.dp))
-            if (page == 0) {
+            if (currentPage == 0) {
                 Text(
                     "「いつかやろう」を「そろそろやろう」に",
-                    fontSize = 12.5.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Palette.Pink,
-                    letterSpacing = 1.sp,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.primary,
                 )
                 Spacer(Modifier.height(10.dp))
             }
-            Text(pages[page].first, fontSize = 24.sp, fontWeight = FontWeight.Black, color = Palette.Ink)
+            Text(pages[currentPage].first, style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onSurface)
             Spacer(Modifier.height(12.dp))
-            if (page == 1) {
+            if (currentPage == 1) {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     types.forEachIndexed { i, type ->
                         val selected = selectedType == i
@@ -1306,9 +1465,17 @@ fun OnboardingScreen(
                             Modifier
                                 .fillMaxWidth()
                                 .defaultMinSize(minHeight = 48.dp)
-                                .clip(RoundedCornerShape(16.dp))
-                                .background(if (selected) Palette.PinkBg else Palette.CardWhite)
-                                .border(1.dp, if (selected) Palette.Pink else Palette.Line, RoundedCornerShape(16.dp))
+                                .clip(MaterialTheme.shapes.large)
+                                .background(
+                                    if (selected) MaterialTheme.colorScheme.primaryContainer
+                                    else MaterialTheme.colorScheme.surface
+                                )
+                                .border(
+                                    1.dp,
+                                    if (selected) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.outlineVariant,
+                                    MaterialTheme.shapes.large,
+                                )
                                 .selectable(
                                     selected = selected,
                                     role = Role.RadioButton,
@@ -1323,8 +1490,9 @@ fun OnboardingScreen(
                         ) {
                             Text(
                                 if (selected) "${type.first} ✓" else type.first,
-                                fontSize = 15.sp, fontWeight = FontWeight.Bold,
-                                color = if (selected) Palette.Pink else Palette.Ink,
+                                style = MaterialTheme.typography.titleMedium,
+                                color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
+                                else MaterialTheme.colorScheme.onSurface,
                             )
                         }
                     }
@@ -1332,21 +1500,32 @@ fun OnboardingScreen(
                 Spacer(Modifier.height(16.dp))
                 AnimatedVisibility(visible = selectedType >= 0) {
                     val idx = selectedType.coerceIn(0, types.lastIndex)
-                    Text(types[idx].second, fontSize = 15.sp, color = Palette.InkSoft, lineHeight = 25.sp)
+                    Text(types[idx].second, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 if (selectedType < 0) {
-                    Text("当てはまるものを、タップしてみて。", fontSize = 12.5.sp, color = Palette.InkSoft)
+                    Text("当てはまるものを、タップしてみて。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             } else {
-                Text(pages[page].second, fontSize = 15.sp, color = Palette.InkSoft, lineHeight = 26.sp)
+                Text(pages[currentPage].second, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            }
             }
             Spacer(Modifier.height(34.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 pages.indices.forEach { i ->
+                    // v0.6.0：ドットの伸縮もアニメーションさせる
+                    val dotWidth by animateDpAsState(
+                        targetValue = if (i == page) 22.dp else 8.dp,
+                        animationSpec = tween(250),
+                        label = "pageDot$i",
+                    )
                     Box(
-                        Modifier.width(if (i == page) 22.dp else 8.dp).height(8.dp)
+                        Modifier.width(dotWidth).height(8.dp)
                             .clip(RoundedCornerShape(4.dp))
-                            .background(if (i == page) Palette.Pink else Palette.Line)
+                            .background(
+                                if (i == page) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.outlineVariant
+                            )
                     )
                 }
             }
@@ -1354,20 +1533,16 @@ fun OnboardingScreen(
             if (page < pages.lastIndex) {
                 Button(
                     onClick = { page = (page + 1).coerceAtMost(pages.lastIndex) },
-                    colors = ButtonDefaults.buttonColors(containerColor = Palette.Pink),
-                    shape = RoundedCornerShape(999.dp),
                     modifier = Modifier.fillMaxWidth(),
-                ) { Text("つぎへ", fontSize = 15.sp) }
+                ) { Text("つぎへ") }
                 TextButton(onClick = { confirmSkip = true }, modifier = Modifier.fillMaxWidth()) {
-                    Text("スキップ", color = Palette.InkSoft)
+                    Text("スキップ", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             } else {
                 Button(
                     onClick = onDone,
-                    colors = ButtonDefaults.buttonColors(containerColor = Palette.Pink),
-                    shape = RoundedCornerShape(999.dp),
                     modifier = Modifier.fillMaxWidth(),
-                ) { Text("はじめる", fontSize = 15.sp) }
+                ) { Text("はじめる") }
             }
         }
     }
