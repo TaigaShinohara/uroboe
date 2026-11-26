@@ -18,13 +18,13 @@ data class Memo(
     val lowPriorityAt: Long? = null,
     /** 忘却曲線の現在ステージ（0..6：1時間→1日→3日→7日→14日→30日→60日）。 */
     val reviewStage: Int = 0,
-    /** 最後に「またあとで」（または作成／上段復帰）した時刻（epoch ms）。 */
+    /** 最後に「まだやらない」（または作成／上段復帰）した時刻（epoch ms）。 */
     val lastReviewedAt: Long = createdAt,
     /** 新規作成または上段復帰で上段に入った時刻。直後15分の最上部維持に使う（0以下で無効）。 */
     val enteredActiveAt: Long = createdAt,
     /** 「そろそろやる」と決めた時刻（v0.4.3）。設定中は上段の最上部に固定される。 */
     val willDoAt: Long? = null,
-    /** 節目を越えて「またあとで」を送った累計回数。 */
+    /** 節目を越えて「まだやらない」を送った累計回数。 */
     val reunions: Int = 0,
 ) {
     val isQuiz: Boolean get() = !question.isNullOrBlank()
@@ -84,7 +84,7 @@ object MemoLogic {
     fun isDueForReview(memo: Memo, now: Long): Boolean =
         !memo.lowPriority && forgettingRatio(memo, now) >= 1.0
 
-    /** 作成・上段復帰直後の猶予時間内か（明示的な「またあとで」後は false）。 */
+    /** 作成・上段復帰直後の猶予時間内か（明示的な「まだやらない」後は false）。 */
     fun isFresh(memo: Memo, now: Long): Boolean {
         if (memo.lowPriority || memo.reviewStage != 0 || memo.enteredActiveAt <= 0L) return false
         if (memo.lastReviewedAt != memo.enteredActiveAt) return false
@@ -185,7 +185,7 @@ object MemoLogic {
             )
 
     /**
-     * 明示的な「またあとで」操作（上段右スワイプまたは編集画面の［またあとで］）。
+     * 明示的な「まだやらない」操作（長押しメニューまたは詳細画面の［まだやらない］）。
      * 閲覧・編集だけでは呼ばれない。
      * - 節目到達済みなら次のインターバルへ進み、reunions を加算する。
      * - 節目未到達なら現在ステージのまま計測起点を now に更新し、Fresh 猶予は解除する。

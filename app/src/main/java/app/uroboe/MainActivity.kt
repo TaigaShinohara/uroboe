@@ -9,6 +9,8 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -38,6 +40,7 @@ import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -222,6 +225,24 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+/**
+ * v0.7.1（U-4）：OS の「アニメーションをオフ／動きを減らす」設定への追随。
+ * システムのアニメーション倍率が 0 のときは、遷移・段階表示を即時表示に切り替える。
+ */
+@Composable
+private fun rememberReduceMotion(): Boolean {
+    val context = LocalContext.current
+    return remember {
+        runCatching {
+            android.provider.Settings.Global.getFloat(
+                context.contentResolver,
+                android.provider.Settings.Global.ANIMATOR_DURATION_SCALE,
+                1f,
+            )
+        }.getOrDefault(1f) == 0f
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun UroboeApp(store: MemoStore) {
@@ -285,6 +306,8 @@ fun UroboeApp(store: MemoStore) {
     val detailMemo = detailId?.let { id -> data.memos.firstOrNull { it.id == id } }
 
     // v0.6.0：画面遷移は M3 モーション（フェード＋わずかな横スライド）でつなぐ
+    // v0.7.1（U-4）：「動きを減らす」設定時は即時表示に切り替える
+    val reduceMotion = rememberReduceMotion()
     val screenKey = when {
         showOnboarding -> 0
         writeOpen -> 1
@@ -294,8 +317,12 @@ fun UroboeApp(store: MemoStore) {
     AnimatedContent(
         targetState = screenKey,
         transitionSpec = {
-            ((fadeIn(tween(300)) + slideInHorizontally(tween(300)) { it / 10 }) togetherWith
-                fadeOut(tween(180))) using SizeTransform(clip = false)
+            if (reduceMotion) {
+                EnterTransition.None togetherWith ExitTransition.None using SizeTransform(clip = false)
+            } else {
+                ((fadeIn(tween(300)) + slideInHorizontally(tween(300)) { it / 10 }) togetherWith
+                    fadeOut(tween(180))) using SizeTransform(clip = false)
+            }
         },
         label = "screenTransition",
     ) { key ->
@@ -399,7 +426,8 @@ fun UroboeApp(store: MemoStore) {
                     onDefer = { memo ->
                         store.deferToNextStage(memo.id)
                         now = store.effectiveNow()
-                        store.postNotice("「またあとで」に送りました", "元に戻す", memo)
+                        // v0.7.1（U-2）：詳細画面側の通知文言と統一する
+                        store.postNotice("「まだやらない」にしました", "元に戻す", memo)
                     },
                     onMoveToSomeday = { memo ->
                         store.setLowPriority(memo.id, true)
@@ -441,8 +469,10 @@ fun UroboeApp(store: MemoStore) {
                 LaunchedEffect(notice) { if (notice != null) lastNotice = notice }
                 AnimatedVisibility(
                     visible = notice != null,
-                    enter = slideInVertically(tween(250)) { it } + fadeIn(tween(250)),
-                    exit = slideOutVertically(tween(200)) { it } + fadeOut(tween(200)),
+                    enter = if (reduceMotion) EnterTransition.None
+                        else slideInVertically(tween(250)) { it } + fadeIn(tween(250)),
+                    exit = if (reduceMotion) ExitTransition.None
+                        else slideOutVertically(tween(200)) { it } + fadeOut(tween(200)),
                     modifier = Modifier.align(Alignment.BottomCenter),
                 ) {
                     lastNotice?.let { current ->
@@ -477,7 +507,9 @@ fun UroboeApp(store: MemoStore) {
                                             store.undoLatestNotice()
                                             now = store.effectiveNow()
                                         },
-                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                                        // v0.7.1（U-13）：消える前に押しやすいよう高さ48dpを確保する
+                                        modifier = Modifier.heightIn(min = 48.dp),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                                     ) {
                                         Text(
                                             current.undoLabel,
@@ -549,9 +581,9 @@ fun UroboeApp(store: MemoStore) {
             title = { Text("うろぼえ について") },
             text = {
                 Text(
-                    "「いつかやろう」を「そろそろやろう」に変えるメモ帳。\nバージョン 0.7.0\n\n" +
+                    "「いつかやろう」を「そろそろやろう」に変えるメモ帳。\nバージョン 0.7.1\n\n" +
                         "書いたメモは勝手には消えず、忘却曲線に沿って忘れかけたものが上へ浮かびます。\n\n" +
-                        "メモを長押しするとメニューが出て、「またあとで」「いつかやればいい」（自動浮上なしの保留）などへ分けられます。データはこの端末の中だけにあります。\n\n" +
+                        "メモを長押しするとメニューが出て、「まだやらない」「いつかやればいいへ」（自動浮上なしの保留）「やった」などを選べます。データはこの端末の中だけにあります。\n\n" +
                         "アプリを削除（アンインストール）すると、メモもすべて消えます。大事なメモは、画面いちばん下の「その他」→「データを書き出す」から控えを取っておけます。"
                 )
             },
@@ -568,7 +600,8 @@ fun UroboeApp(store: MemoStore) {
 
 /**
  * 新コンセプト「忘れかけた1枚が静かに上へ浮かぶ」を表す共通モチーフ。
- * highlightIndex = 0 のとき最上段がピンクでふわりと浮上する。
+ * elevatedTop = true のとき最上段がピンクで浮かび上がる。オンボーディング冒頭では
+ * false（浮かぶ前）の段階表現を使う（ART_DIRECTION の段階表現の注記を参照）。
  */
 @Composable
 private fun FloatingMemoMotif(
@@ -639,10 +672,12 @@ private fun MemoCardShell(
     content: @Composable () -> Unit,
 ) {
     // v0.7.0：押している間だけ少し沈む「押し感」を付け、触った手応えを返す
+    // v0.7.1（U-4）：OS の「動きを減らす」設定時は沈み込みを止める
+    val reduceMotion = rememberReduceMotion()
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
     val pressScale by animateFloatAsState(
-        targetValue = if (pressed) 0.97f else 1f,
+        targetValue = if (pressed && !reduceMotion) 0.97f else 1f,
         animationSpec = tween(durationMillis = 150),
         label = "cardPressScale",
     )
@@ -656,6 +691,9 @@ private fun MemoCardShell(
                     Modifier.combinedClickable(
                         interactionSource = interactionSource,
                         indication = ripple(),
+                        // v0.7.1（U-9）：読み上げでも操作の意味が分かるようラベルを付ける
+                        onClickLabel = "詳細を開く",
+                        onLongClickLabel = "メニューを開く",
                         onClick = { onClick?.invoke() },
                         onLongClick = onLongClick,
                     )
@@ -677,12 +715,14 @@ private fun MenuActionRow(
     caption: String,
     primary: Boolean = false,
     danger: Boolean = false,
+    // v0.7.1（U-3）：触覚は詳細画面の同じ操作と重さを揃える（「やった」は重い側）
+    hapticType: HapticFeedbackType = HapticFeedbackType.TextHandleMove,
     onClick: () -> Unit,
 ) {
     val haptic = LocalHapticFeedback.current
     Surface(
         onClick = {
-            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            haptic.performHapticFeedback(hapticType)
             onClick()
         },
         shape = MaterialTheme.shapes.large,
@@ -868,7 +908,8 @@ fun SingleScreen(
                             if (memo.isQuiz) {
                                 Spacer(Modifier.height(3.dp))
                                 Text(
-                                    "クイズ形式 ・ タップで答えを見る",
+                                    // v0.7.1（U-8）：実挙動（開いた先で答えを表示）に文言を合わせる
+                                    "クイズ形式 ・ 開いて答えを見る",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
@@ -920,8 +961,13 @@ fun SingleScreen(
                                 )
                             }
                             Spacer(Modifier.height(3.dp))
+                            // v0.7.1（U-14）：経過の起点（保留してから／書いてから）を明示する
                             Text(
-                                MemoLogic.elapsedLabel(memo.createdAt, now),
+                                if (memo.lowPriorityAt != null) {
+                                    "保留して" + MemoLogic.elapsedLabel(memo.lowPriorityAt, now)
+                                } else {
+                                    "書いて" + MemoLogic.elapsedLabel(memo.createdAt, now)
+                                },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -986,14 +1032,14 @@ fun SingleScreen(
                     MenuActionRow("まだやらない", "次の節目まで後まわし") {
                         onDefer(currentMenuMemo); menuMemo = null
                     }
-                    MenuActionRow("いつかやればいいへ", "下段に保留する") {
+                    MenuActionRow("いつかやればいいへ", "自動浮上なしで保留") {
                         onMoveToSomeday(currentMenuMemo); menuMemo = null
                     }
-                    MenuActionRow("やった", "一覧から消える") {
+                    MenuActionRow("やった", "一覧から消える", hapticType = HapticFeedbackType.LongPress) {
                         onComplete(currentMenuMemo); menuMemo = null
                     }
                 } else {
-                    MenuActionRow("そろそろやろうへ戻す", "上段の先頭に戻る", primary = true) {
+                    MenuActionRow("そろそろやろうへ戻す", "先頭に戻って浮上を待つ", primary = true) {
                         onMoveToActive(currentMenuMemo); menuMemo = null
                     }
                     MenuActionRow("削除する", "完全削除・戻せない", danger = true) {
@@ -1072,11 +1118,14 @@ fun WriteScreen(
                     },
                 )
             }
-            // v0.7.0：残り字数の注意は、ふわっと出入りさせる
+            // v0.7.0：残り字数の注意は、ふわっと出入りさせる（v0.7.1 U-4：減速設定時は即時）
+            val reduceMotionNote = rememberReduceMotion()
             AnimatedVisibility(
                 visible = body.length >= 900,
-                enter = fadeIn(tween(200)) + expandVertically(tween(200)),
-                exit = fadeOut(tween(150)) + shrinkVertically(tween(150)),
+                enter = if (reduceMotionNote) EnterTransition.None
+                    else fadeIn(tween(200)) + expandVertically(tween(200)),
+                exit = if (reduceMotionNote) ExitTransition.None
+                    else fadeOut(tween(150)) + shrinkVertically(tween(150)),
             ) {
                 Text(
                     "あと${1000 - body.length}字まで書けます",
@@ -1119,24 +1168,28 @@ private fun DetailActionButton(
             Text(
                 text,
                 style = MaterialTheme.typography.labelLarge,
-                maxLines = 1,
+                // v0.7.1（U-5）：フォント拡大時に切れないよう2行まで許す
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
                 caption,
                 style = MaterialTheme.typography.bodySmall,
-                color = LocalContentColor.current.copy(alpha = 0.75f),
-                maxLines = 1,
+                // v0.7.1（U-1）：alpha 0.75 だと全種で AA（4.5:1）未満になるため不透明で描く
+                color = LocalContentColor.current,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
         }
     }
-    val padding = PaddingValues(horizontal = 10.dp, vertical = 10.dp)
+    // v0.7.1（U-5）：完全な丸型（999.dp）だと、フォント拡大で文字が複数行になったときに
+    // 四隅が文字に食い込むため、角丸を 28.dp に抑えて文字の置き場所を確保する
+    val padding = PaddingValues(horizontal = 12.dp, vertical = 10.dp)
     when (kind) {
         DetailButtonKind.Filled -> Button(
             onClick = wrappedClick,
             modifier = modifier,
-            shape = RoundedCornerShape(999.dp),
+            shape = RoundedCornerShape(28.dp),
             colors = ButtonDefaults.buttonColors(
                 containerColor = MaterialTheme.colorScheme.primary,
                 contentColor = MaterialTheme.colorScheme.onPrimary,
@@ -1146,7 +1199,7 @@ private fun DetailActionButton(
         DetailButtonKind.Tonal -> FilledTonalButton(
             onClick = wrappedClick,
             modifier = modifier,
-            shape = RoundedCornerShape(999.dp),
+            shape = RoundedCornerShape(28.dp),
             colors = ButtonDefaults.filledTonalButtonColors(
                 containerColor = MaterialTheme.colorScheme.primaryContainer,
                 contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -1156,7 +1209,7 @@ private fun DetailActionButton(
         DetailButtonKind.Outlined -> OutlinedButton(
             onClick = wrappedClick,
             modifier = modifier,
-            shape = RoundedCornerShape(999.dp),
+            shape = RoundedCornerShape(28.dp),
             colors = ButtonDefaults.outlinedButtonColors(
                 contentColor = MaterialTheme.colorScheme.onSurface,
             ),
@@ -1165,7 +1218,7 @@ private fun DetailActionButton(
         DetailButtonKind.Danger -> OutlinedButton(
             onClick = wrappedClick,
             modifier = modifier,
-            shape = RoundedCornerShape(999.dp),
+            shape = RoundedCornerShape(28.dp),
             colors = ButtonDefaults.outlinedButtonColors(
                 contentColor = MaterialTheme.colorScheme.error,
             ),
@@ -1274,10 +1327,14 @@ fun EditScreen(
             } else {
                 "$dateShort ・ ${dueLabel ?: "そろそろやろう"}"
             }
-            // v0.7.0：状態が変わったら、1行表示はフェードで切り替える
+            // v0.7.0：状態が変わったら、1行表示はフェードで切り替える（v0.7.1 U-4：減速設定時は即時）
+            val reduceMotionStatus = rememberReduceMotion()
             AnimatedContent(
                 targetState = statusLine,
-                transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(200)) },
+                transitionSpec = {
+                    if (reduceMotionStatus) EnterTransition.None togetherWith ExitTransition.None
+                    else fadeIn(tween(200)) togetherWith fadeOut(tween(200))
+                },
                 label = "statusLine",
             ) { line ->
                 Text(
@@ -1309,10 +1366,11 @@ fun EditScreen(
                         },
                     )
                     Box(Modifier.fillMaxWidth().padding(vertical = 14.dp).height(1.dp).background(Palette.Line))
-                    // v0.7.0：答えは「開く」動き（広がり＋フェード）で出す
+                    // v0.7.0：答えは「開く」動き（広がり＋フェード）で出す（v0.7.1 U-4：減速設定時は即時）
+                    val reduceMotionQuiz = rememberReduceMotion()
                     AnimatedVisibility(
                         visible = !quizAnswerRevealed,
-                        exit = fadeOut(tween(150)),
+                        exit = if (reduceMotionQuiz) ExitTransition.None else fadeOut(tween(150)),
                     ) {
                         OutlinedButton(
                             onClick = { quizAnswerRevealed = true },
@@ -1323,7 +1381,8 @@ fun EditScreen(
                     }
                     AnimatedVisibility(
                         visible = quizAnswerRevealed,
-                        enter = expandVertically(tween(250)) + fadeIn(tween(250)),
+                        enter = if (reduceMotionQuiz) EnterTransition.None
+                            else expandVertically(tween(250)) + fadeIn(tween(250)),
                     ) {
                         BasicTextField(
                             value = answer,
@@ -1412,8 +1471,9 @@ fun EditScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     DetailActionButton(
-                        text = "下段へ",
-                        caption = "いつかやればいいへ",
+                        // v0.7.1（U-6）：名称はセクション名（正式名）に統一する
+                        text = "いつかやればいいへ",
+                        caption = "自動では浮かんでこない",
                         onClick = { onToggleLowPriority(true) },
                         kind = DetailButtonKind.Outlined,
                         modifier = Modifier.weight(1f),
@@ -1436,8 +1496,8 @@ fun EditScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     DetailActionButton(
-                        text = "上段へ戻す",
-                        caption = "上段の先頭に戻る",
+                        text = "そろそろやろうへ戻す",
+                        caption = "先頭に戻って浮上を待つ",
                         onClick = { onToggleLowPriority(false) },
                         kind = DetailButtonKind.Tonal,
                         modifier = Modifier.weight(1f),
@@ -1494,7 +1554,7 @@ fun OnboardingScreen(
         ),
         Triple(
             "さばき方は、長押しひとつ",
-            "カードを長押しするとメニューが出て、\n「またあとで」「いつかやればいい」（保留）「やった」を選べます。\n開いた画面では「そろそろやる」か「まだやらない」かを選べて、やれたら「やった」で完了です。\n※アプリを削除すると、メモもすべて消えます。",
+            "カードを長押しするとメニューが出て、\n「そろそろやる」「まだやらない」「いつかやればいいへ」「やった」を選べます。\n開いた画面でも同じことができて、やれたら「やった」で完了です。\n※アプリを削除すると、メモもすべて消えます。",
             true,
         ),
     )
@@ -1513,10 +1573,13 @@ fun OnboardingScreen(
             verticalArrangement = Arrangement.Center,
         ) {
             // v0.6.0：ページ切り替えは M3 モーション（フェード＋わずかなスライド）でつなぐ
+            // v0.7.1（U-4）：「動きを減らす」設定時は即時表示に切り替える
+            val reduceMotion = rememberReduceMotion()
             AnimatedContent(
                 targetState = page,
                 transitionSpec = {
-                    (fadeIn(tween(250)) + slideInHorizontally(tween(250)) { it / 12 }) togetherWith
+                    if (reduceMotion) EnterTransition.None togetherWith ExitTransition.None
+                    else (fadeIn(tween(250)) + slideInHorizontally(tween(250)) { it / 12 }) togetherWith
                         fadeOut(tween(150))
                 },
                 label = "onboardingPage",
@@ -1559,7 +1622,8 @@ fun OnboardingScreen(
                                     onClick = {
                                         selectedType = i
                                         onSelectType(i)
-                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        // v0.7.1（U-3）：選択は軽い操作なので軽い側に統一
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                     },
                                 )
                                 .padding(horizontal = 16.dp, vertical = 13.dp),
@@ -1590,10 +1654,10 @@ fun OnboardingScreen(
             Spacer(Modifier.height(34.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 pages.indices.forEach { i ->
-                    // v0.6.0：ドットの伸縮もアニメーションさせる
+                    // v0.6.0：ドットの伸縮もアニメーションさせる（v0.7.1 U-4：減速設定時は即時）
                     val dotWidth by animateDpAsState(
                         targetValue = if (i == page) 22.dp else 8.dp,
-                        animationSpec = tween(250),
+                        animationSpec = tween(if (reduceMotion) 0 else 250),
                         label = "pageDot$i",
                     )
                     Box(

@@ -5,7 +5,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -148,6 +151,41 @@ class ScreenshotTest {
         capture("edit_due")
         assertNodeHealthy("忘れかけています", substring = true)
         assertNodeHealthy("そろそろやる")
+        assertNodeHealthy("まだやらない")
+        assertNodeHealthy("やった")
+    }
+
+    /**
+     * v0.7.1（U-5）：狭幅（360dp）＋フォント拡大（1.3倍）でも、詳細画面の
+     * 主ラベルとキャプション（最長の「次は約60日後に浮上」）が欠けずに読めることを確かめる。
+     */
+    @Test
+    @Config(qualifiers = "w360dp-h914dp-420dpi")
+    fun editScreen_largeFont_longCaption() {
+        val dayMs = 24L * 3_600_000L
+        val memo = TestFixtures.dueMemo().copy(
+            reviewStage = 5,
+            createdAt = TestFixtures.NOW - 40 * dayMs,
+            lastReviewedAt = TestFixtures.NOW - 40 * dayMs,
+            enteredActiveAt = TestFixtures.NOW - 40 * dayMs,
+        )
+        composeRule.setContent {
+            AppShell {
+                CompositionLocalProvider(
+                    LocalDensity provides Density(LocalDensity.current.density, fontScale = 1.3f),
+                ) {
+                    EditScreen(
+                        memo = memo,
+                        now = TestFixtures.NOW,
+                        onBack = {}, onEdit = { _, _, _ -> }, onWillDo = {},
+                        onDefer = {}, onComplete = {}, onToggleLowPriority = {},
+                        onRequestDelete = {},
+                    )
+                }
+            }
+        }
+        capture("edit_largefont")
+        assertNodeHealthy("次は約60日後に浮上", substring = true)
         assertNodeHealthy("まだやらない")
         assertNodeHealthy("やった")
     }
