@@ -206,6 +206,14 @@ fun UroboeTheme(content: @Composable () -> Unit) {
 }
 
 class MainActivity : ComponentActivity() {
+    private var storeRef: MemoStore? = null
+
+    override fun onStop() {
+        // v0.7.2（S-4）：間引いた保存を、アプリが裏へ回る前に確定させる
+        storeRef?.flushPendingSave()
+        super.onStop()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge(
@@ -217,6 +225,7 @@ class MainActivity : ComponentActivity() {
             ),
         )
         val store = MemoStoreHolder.get(applicationContext)
+        storeRef = store
         setContent {
             UroboeTheme {
                 UroboeApp(store)
@@ -581,7 +590,7 @@ fun UroboeApp(store: MemoStore) {
             title = { Text("うろぼえ について") },
             text = {
                 Text(
-                    "「いつかやろう」を「そろそろやろう」に変えるメモ帳。\nバージョン 0.7.1\n\n" +
+                    "「いつかやろう」を「そろそろやろう」に変えるメモ帳。\nバージョン 0.7.2\n\n" +
                         "書いたメモは勝手には消えず、忘却曲線に沿って忘れかけたものが上へ浮かびます。\n\n" +
                         "メモを長押しするとメニューが出て、「まだやらない」「いつかやればいいへ」（自動浮上なしの保留）「やった」などを選べます。データはこの端末の中だけにあります。\n\n" +
                         "アプリを削除（アンインストール）すると、メモもすべて消えます。大事なメモは、画面いちばん下の「その他」→「データを書き出す」から控えを取っておけます。"
@@ -961,6 +970,15 @@ fun SingleScreen(
                                 )
                             }
                             Spacer(Modifier.height(3.dp))
+                            if (memo.isQuiz) {
+                                // v0.7.2（S-12）：下段でもクイズ形式であることを示す（本文プレビューは両段とも出さない）
+                                Text(
+                                    "クイズ形式 ・ 開いて答えを見る",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Spacer(Modifier.height(3.dp))
+                            }
                             // v0.7.1（U-14）：経過の起点（保留してから／書いてから）を明示する
                             Text(
                                 if (memo.lowPriorityAt != null) {
@@ -1098,10 +1116,10 @@ fun WriteScreen(
                     onValueChange = { raw ->
                         val text = raw.take(1000)
                         body = text
-                        val trimmed = text.trim()
+                        // v0.7.2（S-5）：保存する文字列と画面に出ている文字列を一致させる（trim は空判定にだけ使う）
                         val id = createdId
-                        if (trimmed.isNotEmpty()) {
-                            if (id == null) createdId = onCreate(trimmed) else onUpdate(id, trimmed)
+                        if (text.isNotBlank()) {
+                            if (id == null) createdId = onCreate(text) else onUpdate(id, text)
                         } else if (id != null) {
                             onDiscardNew(id)
                             createdId = null
@@ -1128,7 +1146,8 @@ fun WriteScreen(
                     else fadeOut(tween(150)) + shrinkVertically(tween(150)),
             ) {
                 Text(
-                    "あと${1000 - body.length}字まで書けます",
+                    // v0.7.2（L-3）：上限到達は黙って切り捨てず、その旨を表示する
+                    if (body.length >= 1000) "上限の1000字です" else "あと${1000 - body.length}字まで書けます",
                     fontSize = 12.5.sp, color = Palette.InkSoft,
                     modifier = Modifier.padding(top = 4.dp),
                 )
@@ -1236,6 +1255,21 @@ private fun intervalShortLabel(ms: Long): String = when {
 
 // ---------------- メモを開く（全画面・閲覧と編集・明示的な区切り操作） ----------------
 
+/**
+ * v0.7.2（L-3 残件）：編集画面でも、1000字の上限が近い・達したことを無言にせず知らせる。
+ * 書く画面の注記と同じ文面・出し方（900字から表示）。
+ */
+@Composable
+private fun CharLimitNote(length: Int) {
+    if (length >= 900) {
+        Text(
+            if (length >= 1000) "上限の1000字です" else "あと${1000 - length}字まで書けます",
+            fontSize = 12.5.sp, color = Palette.InkSoft,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EditScreen(
@@ -1258,14 +1292,16 @@ fun EditScreen(
     var lastPushAt by remember(memo.id) { mutableStateOf(0L) }
 
     val isEmptyWarning = if (memo.isQuiz) {
-        question.isBlank() || answer.isBlank()
+        // v0.7.2（S-11）：質問と答えは独立に保存されるため、警告は両方とも空のときだけ出す
+        question.isBlank() && answer.isBlank()
     } else {
         body.isBlank()
     }
 
     fun persist(b: String, q: String, a: String) {
         if (memo.isQuiz) {
-            if (q.isNotBlank() && a.isNotBlank()) onEdit("", q, a)
+            // S-11：答えが空の旧クイズメモでも、質問だけの編集が保存されるようにする
+            if (q.isNotBlank() || a.isNotBlank()) onEdit("", q, a)
         } else if (b.isNotBlank()) {
             onEdit(b, null, null)
         }
@@ -1354,7 +1390,7 @@ fun EditScreen(
                 if (memo.isQuiz) {
                     BasicTextField(
                         value = question,
-                        onValueChange = { val v = it.take(1000); pushHistory(1); question = v; persist(body, v, answer) },
+                        onValueChange = { val v = it.take(1000); if (v != question) { pushHistory(1); question = v; persist(body, v, answer) } },
                         textStyle = TextStyle(fontSize = 17.sp, color = Palette.Ink, fontWeight = FontWeight.Bold, lineHeight = 27.sp),
                         cursorBrush = SolidColor(Palette.Pink),
                         modifier = Modifier.fillMaxWidth(),
@@ -1365,6 +1401,7 @@ fun EditScreen(
                             inner()
                         },
                     )
+                    CharLimitNote(question.length)
                     Box(Modifier.fillMaxWidth().padding(vertical = 14.dp).height(1.dp).background(Palette.Line))
                     // v0.7.0：答えは「開く」動き（広がり＋フェード）で出す（v0.7.1 U-4：減速設定時は即時）
                     val reduceMotionQuiz = rememberReduceMotion()
@@ -1386,7 +1423,7 @@ fun EditScreen(
                     ) {
                         BasicTextField(
                             value = answer,
-                            onValueChange = { val v = it.take(1000); pushHistory(2); answer = v; persist(body, question, v) },
+                            onValueChange = { val v = it.take(1000); if (v != answer) { pushHistory(2); answer = v; persist(body, question, v) } },
                             textStyle = TextStyle(fontSize = 17.sp, color = Palette.Ink, lineHeight = 26.sp),
                             cursorBrush = SolidColor(Palette.Pink),
                             modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 160.dp),
@@ -1398,10 +1435,11 @@ fun EditScreen(
                             },
                         )
                     }
+                    if (quizAnswerRevealed) CharLimitNote(answer.length)
                 } else {
                     BasicTextField(
                         value = body,
-                        onValueChange = { val v = it.take(1000); pushHistory(0); body = v; persist(v, question, answer) },
+                        onValueChange = { val v = it.take(1000); if (v != body) { pushHistory(0); body = v; persist(v, question, answer) } },
                         textStyle = TextStyle(fontSize = 17.sp, color = Palette.Ink, lineHeight = 27.sp),
                         cursorBrush = SolidColor(Palette.Pink),
                         modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 200.dp),
@@ -1412,6 +1450,7 @@ fun EditScreen(
                             inner()
                         },
                     )
+                    CharLimitNote(body.length)
                 }
             }
             // v0.5：「自動で保存されます」の常駐注記は整理で削除。空の警告だけ後出しで出す
