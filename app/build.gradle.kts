@@ -14,8 +14,8 @@ android {
         applicationId = "app.uroboe"
         minSdk = 26
         targetSdk = 36
-        versionCode = 26
-        versionName = "0.7.1"
+        versionCode = 27
+        versionName = "0.7.2"
     }
 
     // v0.3.3：署名鍵をプロジェクト内（永続領域）に固定する。
@@ -40,6 +40,8 @@ android {
             signingConfigs.findByName("stable")?.let { signingConfig = it }
         }
         release {
+            // v0.7.2（S-8）：R8 は意図的に無効。端末内完結・外部通信なし・秘密情報なしの小規模アプリで、
+            // 難読化の利益より「検証したバイナリそのままを配る」確実さを優先する（APK は約2〜3MBで実害なし）。
             isMinifyEnabled = false
             signingConfigs.findByName("stable")?.let { signingConfig = it }
         }
