@@ -7,6 +7,9 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledFuture
+import java.util.concurrent.TimeUnit
 
 data class StoreData(
     val memos: List<Memo> = emptyList(),
@@ -58,17 +61,39 @@ class MemoStore(private val baseDir: File) {
     private var maxSeen: Long = 0L
     private var noticeSeq: Long = 0L
 
+    /** v0.7.2（S-3）：通知は単一枠ではなくスタックで保持し、前の操作の復元機会が差し替えで消えないようにする。 */
+    private val noticeStack = ArrayDeque<UndoNotice>()
+
+    /** v0.7.2（S-10）：parse できなかったメモ要素の原文。次回保存でもそのまま書き戻し、黙って消えないようにする。 */
+    private var quarantinedRaw: List<String> = emptyList()
+
+    /** v0.7.2（S-4）：入力中の保存を間引くための遅延保存（単一スレッド・デーモン）。 */
+    private val saveExecutor = Executors.newSingleThreadScheduledExecutor { r ->
+        Thread(r, "uroboe-save").apply { isDaemon = true }
+    }
+
+    @Volatile
+    private var pendingSave: ScheduledFuture<*>? = null
+
     init {
         baseDir.mkdirs()
         load()
-        advanceClockGuard(System.currentTimeMillis())
+        effectiveNow()
     }
 
-    /** 端末時刻の逆行に備え、単調増加の現在時刻を返す（ディスク保存は行わない）。 */
+    /**
+     * 端末時刻の逆行に備え、単調増加の現在時刻を返す。
+     * v0.7.2（S-1）：実時刻がガード値より大きく（2時間超）遅れている場合は「時計が未来へ進められて
+     * 戻された」とみなし、ガード値を実時刻へ引き戻す（リベース）。未来側にあるメモの時刻は
+     * 実時刻へ丸め、通常のメモの経過はそのまま保つ。これをしないと前方ジャンプ1回で
+     * 忘却曲線が恒常的に止まってしまう。
+     */
     @Synchronized
     fun effectiveNow(rawNow: Long = System.currentTimeMillis()): Long {
         if (rawNow > maxSeen) {
             maxSeen = rawNow
+        } else if (maxSeen - rawNow > CLOCK_REBASE_THRESHOLD_MS) {
+            rebaseClock(rawNow)
         }
         return maxSeen
     }
@@ -80,31 +105,66 @@ class MemoStore(private val baseDir: File) {
         }
     }
 
+    /** S-1：ガード値を実時刻へ引き戻し、未来側のメモ時刻を実時刻へ丸める（相対的な経過は保たれる）。 */
+    private fun rebaseClock(rawNow: Long) {
+        fun clamp(t: Long): Long = minOf(t, rawNow)
+        _data.value = _data.value.copy(
+            memos = _data.value.memos.map { m ->
+                m.copy(
+                    createdAt = clamp(m.createdAt),
+                    updatedAt = clamp(m.updatedAt),
+                    lastReviewedAt = clamp(m.lastReviewedAt),
+                    enteredActiveAt = clamp(m.enteredActiveAt),
+                    willDoAt = m.willDoAt?.let { clamp(it) },
+                    lowPriorityAt = m.lowPriorityAt?.let { clamp(it) },
+                )
+            }
+        )
+        maxSeen = rawNow
+        save()
+    }
+
     @Synchronized
     fun postNotice(text: String, undoLabel: String? = null, snapshot: Memo? = null) {
         noticeSeq++
-        _notice.value = UndoNotice(
-            id = noticeSeq,
-            text = text,
-            undoLabel = undoLabel,
-            snapshot = snapshot,
+        // v0.7.2（R2-1）：同じメモへの新しい操作が出たら、そのメモの古い通知は破棄する。
+        // 古いスナップショットの復元が、より新しい状態変更まで巻き戻してしまうのを防ぐ
+        // （戻せるのは、そのメモについては直近の操作まで）。
+        if (snapshot != null) {
+            noticeStack.removeAll { it.snapshot?.id == snapshot.id }
+        }
+        noticeStack.addLast(
+            UndoNotice(
+                id = noticeSeq,
+                text = text,
+                undoLabel = undoLabel,
+                snapshot = snapshot,
+            )
         )
+        // 古いものから落とす（保持は直近 MAX_NOTICES 件まで）
+        while (noticeStack.size > MAX_NOTICES) {
+            noticeStack.removeFirst()
+        }
+        _notice.value = noticeStack.lastOrNull()
     }
 
     @Synchronized
     fun dismissNotice(id: Long? = null) {
-        val current = _notice.value ?: return
-        if (id == null || current.id == id) {
-            _notice.value = null
+        if (id == null) {
+            if (noticeStack.isNotEmpty()) noticeStack.removeLast()
+        } else {
+            noticeStack.removeAll { it.id == id }
         }
+        _notice.value = noticeStack.lastOrNull()
     }
 
     @Synchronized
     fun undoLatestNotice(): Boolean {
-        val current = _notice.value ?: return false
+        val current = noticeStack.lastOrNull() ?: return false
         val snap = current.snapshot ?: return false
+        noticeStack.removeLast()
+        _notice.value = noticeStack.lastOrNull()
         restoreSnapshot(snap)
-        _notice.value = null
         return true
     }
 
@@ -133,17 +193,36 @@ class MemoStore(private val baseDir: File) {
     }
 
     @Synchronized
-    fun update(transform: (Memo) -> Memo, id: Long) {
+    fun update(transform: (Memo) -> Memo, id: Long, deferredSave: Boolean = false) {
         _data.value = _data.value.copy(
             memos = _data.value.memos.map { if (it.id == id) transform(it) else it }
         )
-        save()
+        if (deferredSave) scheduleSave() else save()
     }
 
     @Synchronized
     fun editBody(id: Long, body: String, question: String?, answer: String?, now: Long = effectiveNow()) {
         advanceClockGuard(now)
-        update({ it.copy(body = body, question = question, answer = answer, updatedAt = now) }, id)
+        // v0.7.2（S-4）：本文入力はキー入力ごとに走るため、保存は間引いて裏でまとめる
+        update({ it.copy(body = body, question = question, answer = answer, updatedAt = now) }, id, deferredSave = true)
+    }
+
+    /** S-4：遅延保存を予約する（連続入力では最後の1回だけが実行される）。 */
+    private fun scheduleSave() {
+        pendingSave?.cancel(false)
+        pendingSave = saveExecutor.schedule(
+            { synchronized(this) { save() } },
+            SAVE_DEBOUNCE_MS,
+            TimeUnit.MILLISECONDS,
+        )
+    }
+
+    /** S-4：保留中の保存をその場で確定させる（画面離脱・アプリのバックグラウンド化で呼ぶ）。 */
+    fun flushPendingSave() {
+        val pending = pendingSave ?: return
+        pendingSave = null
+        pending.cancel(false)
+        synchronized(this) { save() }
     }
 
     @Synchronized
@@ -177,12 +256,23 @@ class MemoStore(private val baseDir: File) {
         save()
     }
 
-    /** 「元に戻す」用。元のスナップショットをそのまま復元する。 */
+    /**
+     * 「元に戻す」用。
+     * v0.7.2（S-2）：メモがまだ存在する場合は、状態フィールドだけを操作前に戻し、
+     * 本文（body／question／answer）と更新時刻は現在の値（操作後に編集されていればその内容）を守る。
+     * メモが消えている場合（「やった」の取り消し）はスナップショットをそのまま戻す。
+     */
     @Synchronized
     fun restoreSnapshot(memo: Memo) {
-        val exists = _data.value.memos.any { it.id == memo.id }
-        val next = if (exists) {
-            _data.value.memos.map { if (it.id == memo.id) memo else it }
+        val current = _data.value.memos.firstOrNull { it.id == memo.id }
+        val next = if (current != null) {
+            val merged = memo.copy(
+                body = current.body,
+                question = current.question,
+                answer = current.answer,
+                updatedAt = current.updatedAt,
+            )
+            _data.value.memos.map { if (it.id == memo.id) merged else it }
         } else {
             _data.value.memos + memo
         }
@@ -193,7 +283,9 @@ class MemoStore(private val baseDir: File) {
     @Synchronized
     fun deleteAll() {
         _data.value = StoreData()
+        noticeStack.clear()
         _notice.value = null
+        quarantinedRaw = emptyList()
         save()
     }
 
@@ -223,11 +315,21 @@ class MemoStore(private val baseDir: File) {
             o.put("reunions", m.reunions)
             arr.put(o)
         }
+        // S-10：読み込めなかった要素は原文のまま書き戻し、保存のたびに消えていかないようにする
+        for (raw in quarantinedRaw) {
+            val restored = runCatching { JSONObject(raw) }.getOrNull()
+            if (restored != null) arr.put(restored) else arr.put(raw)
+        }
         root.put("memos", arr)
         return root
     }
 
-    private data class Parsed(val data: StoreData, val maxSeen: Long, val skipped: Int)
+    private data class Parsed(
+        val data: StoreData,
+        val maxSeen: Long,
+        val skipped: Int,
+        val quarantined: List<String> = emptyList(),
+    )
 
     private fun parseFile(f: File): Parsed? {
         return try {
@@ -236,6 +338,7 @@ class MemoStore(private val baseDir: File) {
             val arr = root.optJSONArray("memos") ?: JSONArray()
             val memos = ArrayList<Memo>()
             var skipped = 0
+            val quarantined = ArrayList<String>()
             for (i in 0 until arr.length()) {
                 val o = runCatching { arr.getJSONObject(i) }.getOrNull()
                 val parsed = o?.let {
@@ -299,12 +402,19 @@ class MemoStore(private val baseDir: File) {
                         )
                     }.getOrNull()
                 }
-                if (parsed != null) memos += parsed else skipped++
+                if (parsed != null) {
+                    memos += parsed
+                } else {
+                    skipped++
+                    // S-10：黙って捨てず、原文を隔離保持する（次回保存でも書き戻される）
+                    runCatching { arr.get(i)?.toString() }.getOrNull()?.let { quarantined += it }
+                }
             }
             Parsed(
                 data = StoreData(memos = memos.distinctBy { it.id }),
                 maxSeen = root.optLong("maxSeen", 0L),
                 skipped = skipped,
+                quarantined = quarantined,
             )
         } catch (_: Exception) {
             null
@@ -316,9 +426,7 @@ class MemoStore(private val baseDir: File) {
 
     private fun load() {
         if (file.exists()) {
-            runCatching {
-                file.copyTo(File(baseDir, "memos.json.snapshot"), overwrite = true)
-            }
+            // v0.7.2（L-2）：読み取り側のない memos.json.snapshot コピーは廃止した
             val parsed = parseFile(file)
             if (!isBroken(parsed)) {
                 val ok = parsed!!
@@ -328,7 +436,12 @@ class MemoStore(private val baseDir: File) {
                     }
                 }
                 maxSeen = ok.maxSeen
+                quarantinedRaw = ok.quarantined
                 _data.value = ok.data
+                if (ok.skipped > 0) {
+                    // S-10：黙って消えたことにせず、起動直後に知らせる（データ自体は隔離保持される）
+                    postNotice("一部のメモを読み込めませんでした（${ok.skipped}件）。データは残してあります")
+                }
                 return
             }
             // 本体が破損していたら退避しておく
@@ -346,7 +459,11 @@ class MemoStore(private val baseDir: File) {
                 val ok = recovered!!
                 runCatching { candidate.copyTo(file, overwrite = true) }
                 maxSeen = ok.maxSeen
+                quarantinedRaw = ok.quarantined
                 _data.value = ok.data
+                if (ok.skipped > 0) {
+                    postNotice("一部のメモを読み込めませんでした（${ok.skipped}件）。データは残してあります")
+                }
                 return
             }
         }
@@ -360,6 +477,9 @@ class MemoStore(private val baseDir: File) {
      * 3) tmpFile を file へアトミック置換
      */
     private fun save(): Boolean {
+        // 同期保存が走ったら、保留中の遅延保存は不要になる
+        pendingSave?.cancel(false)
+        pendingSave = null
         return try {
             val payload = buildJson().toString().toByteArray(Charsets.UTF_8)
             FileOutputStream(tmpFile).use { fos ->
@@ -383,7 +503,8 @@ class MemoStore(private val baseDir: File) {
                 if (!ok) runCatching { altFile.delete() }
                 ok
             }.getOrDefault(false)
-            if (tmpFile.exists()) {
+            // v0.7.2（S-9）：置換に失敗したときは tmp を残す（次回起動の復旧材料になる）
+            if (replaced && tmpFile.exists()) {
                 runCatching { tmpFile.delete() }
             }
             _lastSaveFailed.value = !replaced
@@ -392,5 +513,16 @@ class MemoStore(private val baseDir: File) {
             _lastSaveFailed.value = true
             false
         }
+    }
+
+    companion object {
+        /** S-1：実時刻がガード値よりこの幅を超えて遅れていたら、時計が戻されたとみなして引き戻す。 */
+        private const val CLOCK_REBASE_THRESHOLD_MS = 2L * 60 * 60 * 1000
+
+        /** S-3：保持する通知（元に戻す機会）の上限。 */
+        private const val MAX_NOTICES = 10
+
+        /** S-4：入力中の保存をまとめる間隔。 */
+        private const val SAVE_DEBOUNCE_MS = 400L
     }
 }
