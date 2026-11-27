@@ -74,6 +74,33 @@ class UiInteractionTest {
     }
 
     @Test
+    fun home_reunionCard_restartAndDismissCallbacks() {
+        var restartedId: Long? = null
+        var dismissedId: Long? = null
+        val reunionMemo = TestFixtures.reunionMemo()
+        composeRule.setContent {
+            UroboeTheme {
+                SingleScreen(
+                    data = StoreData(TestFixtures.sampleMemos() + reunionMemo),
+                    now = TestFixtures.NOW,
+                    saveFailed = false,
+                    reunion = MemoLogic.Reunion(reunionMemo, MemoLogic.ReunionKind.DAYS_100),
+                    onReunionRestart = { restartedId = it.id },
+                    onReunionDismiss = { dismissedId = it.id },
+                    onOpenDetail = {}, onDefer = {}, onMoveToSomeday = {},
+                    onMoveToActive = {}, onRequestDelete = {},
+                    onWillDo = {}, onComplete = {},
+                    onWipe = {}, onAbout = {}, onExport = {},
+                )
+            }
+        }
+        composeRule.onNodeWithText("そろそろやろうに戻す").performClick()
+        assertEquals(reunionMemo.id, restartedId)
+        composeRule.onNodeWithText("とじる").performClick()
+        assertEquals(reunionMemo.id, dismissedId)
+    }
+
+    @Test
     fun home_otherMenu_exportIsReachable() {
         var exported = false
         composeRule.setContent {

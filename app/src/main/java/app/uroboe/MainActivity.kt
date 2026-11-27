@@ -314,6 +314,13 @@ fun UroboeApp(store: MemoStore) {
 
     val detailMemo = detailId?.let { id -> data.memos.firstOrNull { it.id == id } }
 
+    // v0.7.3：今日の再会（暦の節目）。「今日だけ閉じた」メモは出さない
+    val reunionDismissed by store.reunionDismissed.collectAsState()
+    val reunion = remember(data.memos, now, reunionDismissed) {
+        val r = MemoLogic.reunionOfToday(data.memos, now)
+        if (r != null && MemoLogic.reunionDismissKey(r.memo, now) == reunionDismissed) null else r
+    }
+
     // v0.6.0：画面遷移は M3 モーション（フェード＋わずかな横スライド）でつなぐ
     // v0.7.1（U-4）：「動きを減らす」設定時は即時表示に切り替える
     val reduceMotion = rememberReduceMotion()
@@ -431,6 +438,15 @@ fun UroboeApp(store: MemoStore) {
                     data = data,
                     now = now,
                     saveFailed = lastSaveFailed,
+                    reunion = reunion,
+                    onReunionRestart = { memo ->
+                        store.restartCurve(memo.id)
+                        now = store.effectiveNow()
+                        store.postNotice("「そろそろやろう」の先頭に戻しました", "元に戻す", memo)
+                    },
+                    onReunionDismiss = { memo ->
+                        store.dismissReunion(MemoLogic.reunionDismissKey(memo, now))
+                    },
                     onOpenDetail = { detailId = it },
                     onDefer = { memo ->
                         store.deferToNextStage(memo.id)
@@ -590,7 +606,7 @@ fun UroboeApp(store: MemoStore) {
             title = { Text("うろぼえ について") },
             text = {
                 Text(
-                    "「いつかやろう」を「そろそろやろう」に変えるメモ帳。\nバージョン 0.7.2\n\n" +
+                    "「いつかやろう」を「そろそろやろう」に変えるメモ帳。\nバージョン 0.7.3\n\n" +
                         "書いたメモは勝手には消えず、忘却曲線に沿って忘れかけたものが上へ浮かびます。\n\n" +
                         "メモを長押しするとメニューが出て、「まだやらない」「いつかやればいいへ」（自動浮上なしの保留）「やった」などを選べます。データはこの端末の中だけにあります。\n\n" +
                         "アプリを削除（アンインストール）すると、メモもすべて消えます。大事なメモは、画面いちばん下の「その他」→「データを書き出す」から控えを取っておけます。"
@@ -716,6 +732,74 @@ private fun MemoCardShell(
     }
 }
 
+/**
+ * v0.7.3：「きょうの再会」カード。暦の節目（100日／半年／○年目の同じ日）を迎えたメモを、
+ * 忘却曲線ソートには混ぜず、ホームの一番上に別枠で1件だけ静かに置く。
+ * 文面は「戻ってきた」を祝う側に倒し、できていないことを責める要素は置かない。
+ */
+@Composable
+private fun ReunionCard(
+    reunion: MemoLogic.Reunion,
+    onOpen: () -> Unit,
+    onLongClick: () -> Unit,
+    onRestart: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val memo = reunion.memo
+    MemoCardShell(
+        onClick = onOpen,
+        onLongClick = onLongClick,
+        containerColor = Palette.PinkBg,
+        elevationDp = 0f,
+    ) {
+        Row(Modifier.fillMaxWidth()) {
+            Box(
+                Modifier
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(Palette.Pink)
+                    .padding(horizontal = 9.dp, vertical = 2.dp),
+            ) {
+                Text(
+                    "きょうの再会",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Color.White,
+                )
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            memo.title,
+            style = MaterialTheme.typography.titleMedium,
+            color = Palette.Ink,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        if (memo.isQuiz) {
+            Spacer(Modifier.height(3.dp))
+            Text(
+                "クイズ形式 ・ 開いて答えを見る",
+                style = MaterialTheme.typography.bodySmall,
+                color = Palette.InkSoft,
+            )
+        }
+        Spacer(Modifier.height(3.dp))
+        Text(
+            reunion.message,
+            style = MaterialTheme.typography.bodySmall,
+            color = Palette.InkSoft,
+        )
+        Spacer(Modifier.height(6.dp))
+        Row {
+            TextButton(onClick = onRestart) {
+                Text("そろそろやろうに戻す", color = Palette.Pink, fontWeight = FontWeight.Bold)
+            }
+            TextButton(onClick = onDismiss) {
+                Text("とじる", color = Palette.InkSoft)
+            }
+        }
+    }
+}
+
 // ---------------- 単一画面（全件一覧：上段＝忘却曲線順、下段＝いつかやればいい） ----------------
 
 @Composable
@@ -767,6 +851,9 @@ fun SingleScreen(
     data: StoreData,
     now: Long,
     saveFailed: Boolean,
+    reunion: MemoLogic.Reunion? = null,
+    onReunionRestart: (Memo) -> Unit = {},
+    onReunionDismiss: (Memo) -> Unit = {},
     onOpenDetail: (Long) -> Unit,
     onDefer: (Memo) -> Unit,
     onMoveToSomeday: (Memo) -> Unit,
@@ -779,6 +866,10 @@ fun SingleScreen(
     onExport: () -> Unit,
 ) {
     val activeMemos = remember(data.memos, now) { MemoLogic.sortActiveByForgettingCurve(data.memos, now) }
+    // v0.7.3：再会カードに出ているメモはグリッド側に二重表示しない（その日の顔はカード側が担う）
+    val gridActiveMemos = remember(activeMemos, reunion) {
+        if (reunion != null) activeMemos.filter { it.id != reunion.memo.id } else activeMemos
+    }
     val highlightedDueIds = remember(activeMemos, now) { MemoLogic.highlightedDueIds(activeMemos, now) }
     val somedayMemos = remember(data.memos) { MemoLogic.sortSomeday(data.memos) }
     // v0.6.2：スワイプは誤操作が多いという本人の声で廃止し、長押しメニューに置き換えた
@@ -839,6 +930,18 @@ fun SingleScreen(
                 }
             }
         } else {
+            // v0.7.3：今日が暦の節目のメモがあれば、並び順には混ぜず一番上に別枠で出す
+            if (reunion != null) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    ReunionCard(
+                        reunion = reunion,
+                        onOpen = { openDetail(reunion.memo) },
+                        onLongClick = { openMenu(reunion.memo) },
+                        onRestart = { onReunionRestart(reunion.memo) },
+                        onDismiss = { onReunionDismiss(reunion.memo) },
+                    )
+                }
+            }
             // 上段：そろそろやろう（忘却曲線順）
             item(span = { GridItemSpan(maxLineSpan) }) {
                 SectionTitle(
@@ -847,17 +950,20 @@ fun SingleScreen(
                     color = Palette.Pink,
                 )
             }
-            if (activeMemos.isEmpty()) {
-                item(span = { GridItemSpan(maxLineSpan) }) {
-                    Text(
-                        "いま上段にあるメモはありません。右下の「メモを書く」で追加するか、下段から戻せます。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(vertical = 10.dp),
-                    )
+            if (gridActiveMemos.isEmpty()) {
+                // 再会カードだけが出ている日は、空の注記は出さない（カードがその日の顔）
+                if (reunion == null) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        Text(
+                            "いま上段にあるメモはありません。右下の「メモを書く」で追加するか、下段から戻せます。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(vertical = 10.dp),
+                        )
+                    }
                 }
             } else {
-                items(activeMemos, key = { "active_${it.id}" }) { memo ->
+                items(gridActiveMemos, key = { "active_${it.id}" }) { memo ->
                     val showDuePill = memo.id in highlightedDueIds
                     MemoCardShell(
                         onClick = { openDetail(memo) },

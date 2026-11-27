@@ -88,6 +88,32 @@ class ScreenshotTest {
     }
 
     @Test
+    fun home_withReunion() {
+        val reunionMemo = TestFixtures.reunionMemo()
+        composeRule.setContent {
+            AppShell {
+                SingleScreen(
+                    data = StoreData(TestFixtures.sampleMemos() + reunionMemo),
+                    now = TestFixtures.NOW,
+                    saveFailed = false,
+                    reunion = MemoLogic.Reunion(reunionMemo, MemoLogic.ReunionKind.DAYS_100),
+                    onReunionRestart = {}, onReunionDismiss = {},
+                    onOpenDetail = {}, onDefer = {}, onMoveToSomeday = {},
+                    onMoveToActive = {}, onRequestDelete = {},
+                    onWillDo = {}, onComplete = {},
+                    onWipe = {}, onAbout = {}, onExport = {},
+                )
+            }
+        }
+        capture("home_with_reunion")
+        assertNodeHealthy("きょうの再会")
+        assertNodeHealthy("確定申告の控えを机の引き出しにしまう")
+        assertNodeHealthy("100日前のきみが書いたメモだよ。おかえり。")
+        assertNodeHealthy("そろそろやろうに戻す")
+        assertNodeHealthy("とじる")
+    }
+
+    @Test
     fun home_empty() {
         composeRule.setContent {
             AppShell {
