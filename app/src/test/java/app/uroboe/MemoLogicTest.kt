@@ -5,6 +5,8 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.LocalDate
+import java.time.ZoneOffset
 
 class MemoLogicTest {
     private val t0 = 1_700_000_000_000L
@@ -140,6 +142,79 @@ class MemoLogicTest {
     fun titleSkipsLeadingBlankLines() {
         val m = memo().copy(body = "\n\n一行目が題名\n二行目")
         assertEquals("一行目が題名", m.title)
+    }
+
+    // ---- v0.7.3：きょうの再会 ----
+
+    private fun atNoon(date: LocalDate): Long =
+        date.atTime(12, 0).toInstant(ZoneOffset.UTC).toEpochMilli()
+
+    @Test
+    fun reunionHits100DaysMilestone() {
+        val created = LocalDate.of(2023, 8, 6)
+        val today = LocalDate.of(2023, 11, 14) // ちょうど100日後
+        val m = memo(id = 1L, createdAt = atNoon(created))
+        val reunion = MemoLogic.reunionOfToday(listOf(m), atNoon(today), ZoneOffset.UTC)
+        assertEquals(MemoLogic.ReunionKind.DAYS_100, reunion?.kind)
+        assertEquals("100日前のきみが書いたメモだよ。おかえり。", reunion?.message)
+    }
+
+    @Test
+    fun reunionHitsHalfYearAndYearAnniversaries() {
+        val today = LocalDate.of(2023, 11, 14)
+        val half = memo(id = 1L, createdAt = atNoon(LocalDate.of(2023, 5, 14)))
+        assertEquals(
+            MemoLogic.ReunionKind.HALF_YEAR,
+            MemoLogic.reunionOfToday(listOf(half), atNoon(today), ZoneOffset.UTC)?.kind,
+        )
+        val oneYear = memo(id = 2L, createdAt = atNoon(LocalDate.of(2022, 11, 14)))
+        val r1 = MemoLogic.reunionOfToday(listOf(oneYear), atNoon(today), ZoneOffset.UTC)
+        assertEquals(MemoLogic.ReunionKind.YEAR, r1?.kind)
+        assertEquals(1, r1?.years)
+        val twoYears = memo(id = 3L, createdAt = atNoon(LocalDate.of(2021, 11, 14)))
+        val r2 = MemoLogic.reunionOfToday(listOf(twoYears), atNoon(today), ZoneOffset.UTC)
+        assertEquals(2, r2?.years)
+        assertEquals("2年前の今日、きみが書いたメモだよ。おかえり。", r2?.message)
+    }
+
+    @Test
+    fun reunionPrefersStrongerMilestoneThenOlderMemo() {
+        val today = LocalDate.of(2023, 11, 14)
+        val hundredDays = memo(id = 1L, createdAt = atNoon(LocalDate.of(2023, 8, 6)))
+        val oneYear = memo(id = 2L, createdAt = atNoon(LocalDate.of(2022, 11, 14)))
+        val picked = MemoLogic.reunionOfToday(listOf(hundredDays, oneYear), atNoon(today), ZoneOffset.UTC)
+        assertEquals(2L, picked?.memo?.id)
+
+        // 同種（100日）が2件なら、古いメモを優先する
+        val older = memo(id = 3L, createdAt = atNoon(LocalDate.of(2023, 8, 6)).minus(3_600_000L))
+        val picked2 = MemoLogic.reunionOfToday(listOf(hundredDays, older), atNoon(today), ZoneOffset.UTC)
+        assertEquals(3L, picked2?.memo?.id)
+    }
+
+    @Test
+    fun reunionSkipsSomedayAndNonMilestoneDays() {
+        val today = LocalDate.of(2023, 11, 14)
+        val someday = memo(
+            id = 1L,
+            createdAt = atNoon(LocalDate.of(2023, 8, 6)),
+            lowPriority = true,
+            lowPriorityAt = atNoon(LocalDate.of(2023, 9, 1)),
+        )
+        // 下段（自動浮上なし）は節目でも対象にしない
+        assertNull(MemoLogic.reunionOfToday(listOf(someday), atNoon(today), ZoneOffset.UTC))
+        // 節目の前日・翌日は当たらない（その日だけ届く）
+        val m = memo(id = 2L, createdAt = atNoon(LocalDate.of(2023, 8, 6)))
+        assertNull(MemoLogic.reunionOfToday(listOf(m), atNoon(today.minusDays(1)), ZoneOffset.UTC))
+        assertNull(MemoLogic.reunionOfToday(listOf(m), atNoon(today.plusDays(1)), ZoneOffset.UTC))
+    }
+
+    @Test
+    fun reunionDismissKeyEmbedsMemoAndDate() {
+        val m = memo(id = 9L, createdAt = t0)
+        val keyToday = MemoLogic.reunionDismissKey(m, atNoon(LocalDate.of(2023, 11, 14)), ZoneOffset.UTC)
+        val keyTomorrow = MemoLogic.reunionDismissKey(m, atNoon(LocalDate.of(2023, 11, 15)), ZoneOffset.UTC)
+        assertEquals("9@2023-11-14", keyToday)
+        assertTrue(keyToday != keyTomorrow)
     }
 
     @Test

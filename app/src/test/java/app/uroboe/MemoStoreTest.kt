@@ -18,6 +18,35 @@ class MemoStoreTest {
     val tmpDir = TemporaryFolder()
 
     @Test
+    fun reunionDismissPersistsAcrossReload() {
+        val dir = tmpDir.newFolder("reunion_dismiss")
+        val store = MemoStore(dir)
+        store.dismissReunion("7@2027-01-15")
+        assertEquals("7@2027-01-15", store.reunionDismissed.value)
+
+        // 再起動（新しい Store）でも「今日だけ閉じた」記録が残る
+        val reloaded = MemoStore(dir)
+        assertEquals("7@2027-01-15", reloaded.reunionDismissed.value)
+    }
+
+    @Test
+    fun restartCurveReturnsMemoToStageZeroFresh() {
+        val dir = tmpDir.newFolder("reunion_restart")
+        val store = MemoStore(dir)
+        val t0 = 1_700_000_000_000L
+        val memo = store.addMemo("再会したメモ", now = t0)
+        store.deferToNextStage(memo.id, now = t0 + 2 * 3_600_000L)
+        assertEquals(1, store.data.value.memos.first().reviewStage)
+
+        store.restartCurve(memo.id, now = t0 + 3 * 3_600_000L)
+        val restarted = store.data.value.memos.first()
+        assertEquals(0, restarted.reviewStage)
+        assertEquals(t0 + 3 * 3_600_000L, restarted.lastReviewedAt)
+        assertEquals(t0 + 3 * 3_600_000L, restarted.enteredActiveAt)
+        assertTrue(MemoLogic.isFresh(restarted, t0 + 3 * 3_600_000L))
+    }
+
+    @Test
     fun recoversFromPrevFileWhenPrimaryFileIsMissing() {
         val dir = tmpDir.newFolder("missing_primary")
         val prev = File(dir, "memos.json.prev")

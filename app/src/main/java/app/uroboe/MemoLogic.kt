@@ -1,5 +1,8 @@
 package app.uroboe
 
+import java.time.Instant
+import java.time.ZoneId
+
 /**
  * メモのデータモデル。
  * メモは自動消滅せず、通常は上段（「そろそろやろう」・忘却曲線順）、
@@ -230,6 +233,80 @@ object MemoLogic {
             enteredActiveAt = now,
             updatedAt = now,
         )
+
+    // ---- v0.7.3：「きょうの再会」（暦が供給する、もう1つの開く理由） ----
+
+    /** 再会の節目の種類。優先順位は YEAR > HALF_YEAR > DAYS_100。 */
+    enum class ReunionKind { DAYS_100, HALF_YEAR, YEAR }
+
+    /**
+     * 今日が節目に当たるメモ1件分の再会情報。
+     * [message] は責めず、「戻ってきた」を祝う側に倒した一言（共通思想③）。
+     */
+    data class Reunion(
+        val memo: Memo,
+        val kind: ReunionKind,
+        val years: Int = 0,
+    ) {
+        val message: String
+            get() = when (kind) {
+                ReunionKind.DAYS_100 -> "100日前のきみが書いたメモだよ。おかえり。"
+                ReunionKind.HALF_YEAR -> "半年前のきみが書いたメモだよ。おかえり。"
+                ReunionKind.YEAR ->
+                    if (years <= 1) "1年前の今日、きみが書いたメモだよ。おかえり。"
+                    else "${years}年前の今日、きみが書いたメモだよ。おかえり。"
+            }
+    }
+
+    /**
+     * 今日、暦の節目（書いてから100日／半年／○年目の同じ日）を迎えたメモを最大1件選ぶ。
+     * - 対象は上段のメモだけ。下段（自動浮上なし）は約束どおり対象にしない。
+     * - 節目が重なったら強い節目を優先し、同種なら古いメモを優先する。
+     * - 節目は「その日だけ」当たる。翌日には自然に消え、残って責めることはしない（共通思想③④）。
+     */
+    fun reunionOfToday(memos: List<Memo>, now: Long, zone: ZoneId = ZoneId.systemDefault()): Reunion? {
+        val today = Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
+        var best: Reunion? = null
+        for (memo in memos) {
+            if (memo.lowPriority) continue
+            val created = Instant.ofEpochMilli(memo.createdAt).atZone(zone).toLocalDate()
+            val years = today.year - created.year
+            val candidate = when {
+                years >= 1 && created.plusYears(years.toLong()) == today ->
+                    Reunion(memo, ReunionKind.YEAR, years)
+                created.plusMonths(6) == today ->
+                    Reunion(memo, ReunionKind.HALF_YEAR)
+                created.plusDays(100) == today ->
+                    Reunion(memo, ReunionKind.DAYS_100)
+                else -> null
+            } ?: continue
+            val current = best
+            if (current == null || isStrongerReunion(candidate, current)) {
+                best = candidate
+            }
+        }
+        return best
+    }
+
+    private fun reunionRank(reunion: Reunion): Int = when (reunion.kind) {
+        ReunionKind.YEAR -> 3
+        ReunionKind.HALF_YEAR -> 2
+        ReunionKind.DAYS_100 -> 1
+    }
+
+    private fun isStrongerReunion(candidate: Reunion, current: Reunion): Boolean {
+        val rankC = reunionRank(candidate)
+        val rankK = reunionRank(current)
+        if (rankC != rankK) return rankC > rankK
+        if (candidate.years != current.years) return candidate.years > current.years
+        return candidate.memo.createdAt < current.memo.createdAt
+    }
+
+    /** 「とじる」の記録キー（メモID＋日付）。日付が変わればキーが変わり、過去の閉じ方は残らない。 */
+    fun reunionDismissKey(memo: Memo, now: Long, zone: ZoneId = ZoneId.systemDefault()): String {
+        val today = Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
+        return "${memo.id}@$today"
+    }
 
     fun elapsedLabel(fromMs: Long, now: Long): String {
         val diff = (now - fromMs).coerceAtLeast(0L)

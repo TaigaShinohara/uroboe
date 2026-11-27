@@ -58,6 +58,12 @@ class MemoStore(private val baseDir: File) {
     private val _lastSaveFailed = MutableStateFlow(false)
     val lastSaveFailed: StateFlow<Boolean> = _lastSaveFailed
 
+    /** v0.7.3：再会カードを「今日だけ閉じた」記録（MemoLogic.reunionDismissKey の文字列）。 */
+    private var reunionDismissedKey: String? = null
+
+    private val _reunionDismissed = MutableStateFlow<String?>(null)
+    val reunionDismissed: StateFlow<String?> = _reunionDismissed
+
     private var maxSeen: Long = 0L
     private var noticeSeq: Long = 0L
 
@@ -243,6 +249,21 @@ class MemoStore(private val baseDir: File) {
         update({ MemoLogic.deferToNextStage(it, now) }, id)
     }
 
+    /** v0.7.3：再会カードの「そろそろやろうに戻す」。忘却曲線の最初（ステージ0）から静かに再スタートする。 */
+    @Synchronized
+    fun restartCurve(id: Long, now: Long = effectiveNow()) {
+        advanceClockGuard(now)
+        update({ MemoLogic.moveToActive(it, now) }, id)
+    }
+
+    /** v0.7.3：再会カードを今日だけ閉じる。記録は日付入りのキーなので、翌日には自然に意味を失う。 */
+    @Synchronized
+    fun dismissReunion(key: String) {
+        reunionDismissedKey = key
+        _reunionDismissed.value = key
+        save()
+    }
+
     /** 「そろそろやる」と決める（v0.4.3）。 */
     @Synchronized
     fun setWillDo(id: Long, now: Long = effectiveNow()) {
@@ -286,6 +307,8 @@ class MemoStore(private val baseDir: File) {
         noticeStack.clear()
         _notice.value = null
         quarantinedRaw = emptyList()
+        reunionDismissedKey = null
+        _reunionDismissed.value = null
         save()
     }
 
@@ -297,6 +320,7 @@ class MemoStore(private val baseDir: File) {
         val root = JSONObject()
         root.put("maxSeen", maxSeen)
         root.put("schemaVersion", 2)
+        root.put("reunionDismissed", reunionDismissedKey ?: JSONObject.NULL)
         val arr = JSONArray()
         for (m in _data.value.memos) {
             val o = JSONObject()
@@ -329,6 +353,7 @@ class MemoStore(private val baseDir: File) {
         val maxSeen: Long,
         val skipped: Int,
         val quarantined: List<String> = emptyList(),
+        val reunionDismissed: String? = null,
     )
 
     private fun parseFile(f: File): Parsed? {
@@ -415,6 +440,8 @@ class MemoStore(private val baseDir: File) {
                 maxSeen = root.optLong("maxSeen", 0L),
                 skipped = skipped,
                 quarantined = quarantined,
+                reunionDismissed = if (root.isNull("reunionDismissed")) null
+                else root.optString("reunionDismissed").ifBlank { null },
             )
         } catch (_: Exception) {
             null
@@ -437,6 +464,8 @@ class MemoStore(private val baseDir: File) {
                 }
                 maxSeen = ok.maxSeen
                 quarantinedRaw = ok.quarantined
+                reunionDismissedKey = ok.reunionDismissed
+                _reunionDismissed.value = ok.reunionDismissed
                 _data.value = ok.data
                 if (ok.skipped > 0) {
                     // S-10：黙って消えたことにせず、起動直後に知らせる（データ自体は隔離保持される）
@@ -460,6 +489,8 @@ class MemoStore(private val baseDir: File) {
                 runCatching { candidate.copyTo(file, overwrite = true) }
                 maxSeen = ok.maxSeen
                 quarantinedRaw = ok.quarantined
+                reunionDismissedKey = ok.reunionDismissed
+                _reunionDismissed.value = ok.reunionDismissed
                 _data.value = ok.data
                 if (ok.skipped > 0) {
                     postNotice("一部のメモを読み込めませんでした（${ok.skipped}件）。データは残してあります")

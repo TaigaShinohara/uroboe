@@ -54,5 +54,15 @@ object TestFixtures {
         lowPriorityAt = NOW - DAY,
     )
 
+    /** v0.7.3：ちょうど100日前（NOW 基準）に書かれたメモ。再会カードの節目に当たる。 */
+    fun reunionMemo() = Memo(
+        id = 6L,
+        body = "確定申告の控えを机の引き出しにしまう",
+        createdAt = NOW - 100 * DAY,
+        lastReviewedAt = NOW - 10 * DAY,
+        enteredActiveAt = NOW - 100 * DAY,
+        reviewStage = 3,
+    )
+
     fun sampleMemos() = listOf(willDoMemo(), dueMemo(), freshMemo(), waitingMemo(), somedayMemo())
 }
