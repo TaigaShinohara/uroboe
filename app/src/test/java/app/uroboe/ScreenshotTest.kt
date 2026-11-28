@@ -4,16 +4,20 @@ import androidx.activity.ComponentActivity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performSemanticsAction
 import com.github.takahirom.roborazzi.captureRoboImage
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -207,6 +211,37 @@ class ScreenshotTest {
      * v0.8.1：キーボード表示中（forceActionsHidden）は操作ボタンが消え、
      * 本文だけが残ることを確かめる（本人の指摘「編集時にボタンがじゃま」への対応）。
      */
+    @Test
+    fun menu_rows() {
+        // v0.8.2：長押しメニューの各行に専用アイコンを表示する（本人の希望）。
+        // 実シートは別ウィンドウ描画で撮影できないため、行そのもの（実物の MenuActionRow）を並べて撮る。
+        // シートが開いて操作できること自体は UiInteractionTest が担保する。
+        composeRule.setContent {
+            UroboeTheme {
+                androidx.compose.material3.Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = androidx.compose.material3.MaterialTheme.colorScheme.surface,
+                ) {
+                    androidx.compose.foundation.layout.Column(
+                        Modifier.padding(horizontal = 20.dp, vertical = 16.dp)
+                    ) {
+                        MenuActionRow("そろそろやる", "いちばん上に固定", ActionIconKind.ToTop, primary = true) {}
+                        MenuActionRow("まだやらない", "次の節目まで後まわし", ActionIconKind.Clock) {}
+                        MenuActionRow("いつかやればいいへ", "自動浮上なしで保留", ActionIconKind.Bookmark) {}
+                        MenuActionRow("やった", "一覧から消える", ActionIconKind.CheckCircle) {}
+                        MenuActionRow("そろそろやろうへ戻す", "先頭に戻って浮上を待つ", ActionIconKind.Undo, primary = true) {}
+                        MenuActionRow("削除する", "完全削除・戻せない", ActionIconKind.Trash, danger = true) {}
+                    }
+                }
+            }
+        }
+        capture("menu_rows")
+        assertNodeHealthy("いちばん上に固定")
+        assertNodeHealthy("次の節目まで後まわし")
+        assertNodeHealthy("自動浮上なしで保留")
+        assertNodeHealthy("一覧から消える")
+    }
+
     @Test
     fun editScreen_keyboardOpen_actionsHidden() {
         composeRule.setContent {
