@@ -14,8 +14,8 @@ android {
         applicationId = "app.uroboe"
         minSdk = 26
         targetSdk = 36
-        versionCode = 28
-        versionName = "0.7.3"
+        versionCode = 29
+        versionName = "0.8.0"
     }
 
     // v0.3.3：署名鍵をプロジェクト内（永続領域）に固定する。
@@ -93,7 +93,8 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.animation:animation")
-    implementation("androidx.activity:activity-compose:1.9.3")
+    // v0.8.0：PredictiveBackHandler（予測型バックの進捗取得）を使うため 1.10.1 へ上げる
+    implementation("androidx.activity:activity-compose:1.10.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 
     testImplementation("junit:junit:4.13.2")
