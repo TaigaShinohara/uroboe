@@ -48,7 +48,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
@@ -134,21 +137,26 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/** アート方針（docs/ART_DIRECTION.md）の色。全テキストで WCAG AA 4.5:1 以上を確保する。 */
+/**
+ * アート方針（docs/ART_DIRECTION.md）の色。全テキストで WCAG AA 4.5:1 以上を確保する。
+ * v0.8.1：パレットを「ゆうぐれ」（夕方の空・紫）に変更（本人が案ボード D を選択）。
+ * 旧ピンク系の名前（Pink/PinkBg）は役割名（Accent/AccentBg）へ改名した。
+ */
 object Palette {
-    val Paper = Color(0xFFFFFBF3)
-    val Ink = Color(0xFF2B2620)
-    val InkSoft = Color(0xFF665D51)
-    val Line = Color(0xFFE9DFCF)
+    val Paper = Color(0xFFF5F2FA)
+    val Ink = Color(0xFF2C2733)
+    val InkSoft = Color(0xFF5F5670)
+    val Line = Color(0xFFDDD3EC)
     val CardWhite = Color(0xFFFFFFFF)
-    val SomedayCard = Color(0xFFF6F0E4)
-    val Pink = Color(0xFFC2185B)
-    val PinkBg = Color(0xFFFCE7F1)
-    /** 落ち着いた濃い橙（対白 5.5:1 / 対紙色 5.3:1 / 対 OrangeBg 4.9:1）。赤は使わない。 */
+    val SomedayCard = Color(0xFFEFEAF7)
+    /** 強い色（唯一）。対紙 6.7:1 / 対 AccentBg 5.6:1 / 白文字を載せて 7.4:1。 */
+    val Accent = Color(0xFF6A3FA0)
+    val AccentBg = Color(0xFFE6DCF5)
+    /** 落ち着いた濃い橙（対白 5.5:1 / 対紙色 5.2:1 / 対 OrangeBg 4.9:1）。赤は使わない。警告の意味色はパレット変更でも据え置く。 */
     val Orange = Color(0xFFB83B00)
     val OrangeBg = Color(0xFFFFF0E3)
     /** M3 の outline 用の中間トーン（紙色とのコントラスト約3.4:1）。 */
-    val Outline = Color(0xFF8A7D68)
+    val Outline = Color(0xFF7D7290)
 }
 
 /**
@@ -174,10 +182,10 @@ private val UroboeTypography = Typography(
 fun UroboeTheme(content: @Composable () -> Unit) {
     MaterialTheme(
         colorScheme = lightColorScheme(
-            primary = Palette.Pink,
+            primary = Palette.Accent,
             onPrimary = Color.White,
-            primaryContainer = Palette.PinkBg,
-            onPrimaryContainer = Palette.Pink,
+            primaryContainer = Palette.AccentBg,
+            onPrimaryContainer = Palette.Accent,
             secondary = Palette.InkSoft,
             onSecondary = Color.White,
             secondaryContainer = Palette.SomedayCard,
@@ -205,7 +213,7 @@ fun UroboeTheme(content: @Composable () -> Unit) {
             outlineVariant = Palette.Line,
             inverseSurface = Palette.Ink,
             inverseOnSurface = Palette.Paper,
-            inversePrimary = Palette.PinkBg,
+            inversePrimary = Palette.AccentBg,
         ),
         typography = UroboeTypography,
         shapes = Shapes(
@@ -644,7 +652,7 @@ fun UroboeApp(store: MemoStore) {
             title = { Text("うろぼえ について") },
             text = {
                 Text(
-                    "「いつかやろう」を「そろそろやろう」に変えるメモ帳。\nバージョン 0.7.3\n\n" +
+                    "「いつかやろう」を「そろそろやろう」に変えるメモ帳。\nバージョン 0.8.1\n\n" +
                         "書いたメモは勝手には消えず、忘却曲線に沿って忘れかけたものが上へ浮かびます。\n\n" +
                         "メモを長押しするとメニューが出て、「まだやらない」「いつかやればいいへ」（自動浮上なしの保留）「やった」などを選べます。データはこの端末の中だけにあります。\n\n" +
                         "アプリを削除（アンインストール）すると、メモもすべて消えます。大事なメモは、画面いちばん下の「その他」→「データを書き出す」から控えを取っておけます。"
@@ -681,7 +689,7 @@ private fun FloatingMemoMotif(
                 .width(if (elevatedTop) 164.dp else 148.dp)
                 .height(10.dp)
                 .clip(RoundedCornerShape(5.dp))
-                .background(if (elevatedTop) Palette.Pink else Palette.Ink.copy(alpha = 0.72f))
+                .background(if (elevatedTop) Palette.Accent else Palette.Ink.copy(alpha = 0.72f))
         )
         // 下の2枚：静かに控えるメモ
         Box(
@@ -705,7 +713,7 @@ private fun FloatingMemoMotif(
 private fun SectionTitle(
     text: String,
     countLabel: String,
-    color: Color = Palette.Pink,
+    color: Color = Palette.Accent,
 ) {
     // v0.5：見出し下のヒント文は整理で削除した
     Row(
@@ -826,7 +834,7 @@ private fun ExpressiveActionGroup(
                 topStart = primaryOuter, bottomStart = primaryOuter,
                 topEnd = 4.dp, bottomEnd = 4.dp,
             ),
-            color = Palette.Pink,
+            color = Palette.Accent,
             modifier = Modifier.weight(primaryWeight).height(48.dp),
         ) {
             Box(contentAlignment = Alignment.Center) {
@@ -919,7 +927,7 @@ fun MorphingLoadingIndicator(modifier: Modifier = Modifier) {
             if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
         }
         path.close()
-        drawPath(path, color = Palette.Pink)
+        drawPath(path, color = Palette.Accent)
     }
 }
 
@@ -940,14 +948,14 @@ private fun ReunionCard(
     MemoCardShell(
         onClick = onOpen,
         onLongClick = onLongClick,
-        containerColor = Palette.PinkBg,
+        containerColor = Palette.AccentBg,
         elevationDp = 0f,
     ) {
         Row(Modifier.fillMaxWidth()) {
             Box(
                 Modifier
                     .clip(RoundedCornerShape(999.dp))
-                    .background(Palette.Pink)
+                    .background(Palette.Accent)
                     .padding(horizontal = 9.dp, vertical = 2.dp),
             ) {
                 Text(
@@ -1137,7 +1145,7 @@ fun SingleScreen(
                 SectionTitle(
                     text = "そろそろやろう",
                     countLabel = "${activeMemos.size}件",
-                    color = Palette.Pink,
+                    color = Palette.Accent,
                 )
             }
             if (gridActiveMemos.isEmpty()) {
@@ -1422,7 +1430,7 @@ fun WriteScreen(
                         }
                     },
                     textStyle = TextStyle(fontSize = 17.sp, color = Palette.Ink, lineHeight = 27.sp),
-                    cursorBrush = SolidColor(Palette.Pink),
+                    cursorBrush = SolidColor(Palette.Accent),
                     modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 200.dp).focusRequester(focusRequester),
                     decorationBox = { inner ->
                         if (body.isEmpty()) {
@@ -1566,7 +1574,7 @@ private fun CharLimitNote(length: Int) {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun EditScreen(
     memo: Memo,
@@ -1578,7 +1586,13 @@ fun EditScreen(
     onComplete: () -> Unit,
     onToggleLowPriority: (Boolean) -> Unit,
     onRequestDelete: () -> Unit,
+    // v0.8.1：テスト用。true の間は操作ボタンを隠す（キーボード表示中と同じ状態を再現する）
+    forceActionsHidden: Boolean = false,
 ) {
+    // v0.8.1：キーボードが出ている間は操作ボタンを隠し、本文の表示領域を全部使う
+    // （本人の指摘「編集時にボタンがじゃま」「キーボードで下の方が見れない」への対応）
+    val imeVisible = WindowInsets.isImeVisible
+    val actionsVisible = !imeVisible && !forceActionsHidden
     var body by rememberSaveable(memo.id) { mutableStateOf(memo.body) }
     var question by rememberSaveable(memo.id) { mutableStateOf(memo.question ?: "") }
     var answer by rememberSaveable(memo.id) { mutableStateOf(memo.answer ?: "") }
@@ -1661,7 +1675,7 @@ fun EditScreen(
                     ) {
                         Text(
                             "↩ 戻す", fontSize = 12.5.sp, fontWeight = FontWeight.Bold,
-                            color = if (undoStack.isNotEmpty()) Palette.Pink else Palette.InkSoft.copy(alpha = 0.45f),
+                            color = if (undoStack.isNotEmpty()) Palette.Accent else Palette.InkSoft.copy(alpha = 0.45f),
                         )
                     }
                 },
@@ -1694,7 +1708,7 @@ fun EditScreen(
                     line,
                     fontSize = 12.5.sp,
                     fontWeight = if (dueEmphasis) FontWeight.Bold else FontWeight.Normal,
-                    color = if (dueEmphasis) Palette.Pink else Palette.InkSoft,
+                    color = if (dueEmphasis) Palette.Accent else Palette.InkSoft,
                     modifier = Modifier.padding(top = 2.dp, bottom = 10.dp),
                 )
             }
@@ -1709,7 +1723,7 @@ fun EditScreen(
                         value = question,
                         onValueChange = { val v = it.take(1000); if (v != question) { pushHistory(1); question = v; persist(body, v, answer) } },
                         textStyle = TextStyle(fontSize = 17.sp, color = Palette.Ink, fontWeight = FontWeight.Bold, lineHeight = 27.sp),
-                        cursorBrush = SolidColor(Palette.Pink),
+                        cursorBrush = SolidColor(Palette.Accent),
                         modifier = Modifier.fillMaxWidth(),
                         decorationBox = { inner ->
                             if (question.isEmpty()) {
@@ -1730,7 +1744,7 @@ fun EditScreen(
                             onClick = { quizAnswerRevealed = true },
                             shape = RoundedCornerShape(999.dp),
                         ) {
-                            Text("タップで答えを表示・編集", color = Palette.Pink, fontSize = 12.5.sp)
+                            Text("タップで答えを表示・編集", color = Palette.Accent, fontSize = 12.5.sp)
                         }
                     }
                     AnimatedVisibility(
@@ -1742,7 +1756,7 @@ fun EditScreen(
                             value = answer,
                             onValueChange = { val v = it.take(1000); if (v != answer) { pushHistory(2); answer = v; persist(body, question, v) } },
                             textStyle = TextStyle(fontSize = 17.sp, color = Palette.Ink, lineHeight = 26.sp),
-                            cursorBrush = SolidColor(Palette.Pink),
+                            cursorBrush = SolidColor(Palette.Accent),
                             modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 160.dp),
                             decorationBox = { inner ->
                                 if (answer.isEmpty()) {
@@ -1758,7 +1772,7 @@ fun EditScreen(
                         value = body,
                         onValueChange = { val v = it.take(1000); if (v != body) { pushHistory(0); body = v; persist(v, question, answer) } },
                         textStyle = TextStyle(fontSize = 17.sp, color = Palette.Ink, lineHeight = 27.sp),
-                        cursorBrush = SolidColor(Palette.Pink),
+                        cursorBrush = SolidColor(Palette.Accent),
                         modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 200.dp),
                         decorationBox = { inner ->
                             if (body.isEmpty()) {
@@ -1779,6 +1793,8 @@ fun EditScreen(
                     modifier = Modifier.padding(top = 8.dp),
                 )
             }
+            // v0.8.1：キーボード表示中は操作ボタン一式を隠す（actionsVisible）
+            if (actionsVisible) {
             if (!memo.lowPriority) {
                 // v0.6.0：各ボタンに「押すとどうなるか」の一言を添えた（本人の「何か良くわからない」への対応）。
                 // 主役は「そろそろやる／まだやらない」の選択（v0.4.3）。完了は「やった」。
@@ -1866,6 +1882,7 @@ fun EditScreen(
                         modifier = Modifier.weight(1f),
                     )
                 }
+            }
             }
             }
         }
