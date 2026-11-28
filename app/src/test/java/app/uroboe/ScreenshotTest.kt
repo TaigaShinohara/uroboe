@@ -204,6 +204,31 @@ class ScreenshotTest {
     }
 
     /**
+     * v0.8.1：キーボード表示中（forceActionsHidden）は操作ボタンが消え、
+     * 本文だけが残ることを確かめる（本人の指摘「編集時にボタンがじゃま」への対応）。
+     */
+    @Test
+    fun editScreen_keyboardOpen_actionsHidden() {
+        composeRule.setContent {
+            AppShell {
+                EditScreen(
+                    memo = TestFixtures.dueMemo(),
+                    now = TestFixtures.NOW,
+                    onBack = {}, onEdit = { _, _, _ -> }, onWillDo = {},
+                    onDefer = {}, onComplete = {}, onToggleLowPriority = {},
+                    onRequestDelete = {},
+                    forceActionsHidden = true,
+                )
+            }
+        }
+        capture("edit_keyboard")
+        composeRule.onNodeWithText("そろそろやる").assertDoesNotExist()
+        composeRule.onNodeWithText("まだやらない").assertDoesNotExist()
+        composeRule.onNodeWithText("やった").assertDoesNotExist()
+        assertNodeHealthy("忘れかけています", substring = true)
+    }
+
+    /**
      * v0.7.1（U-5）：狭幅（360dp）＋フォント拡大（1.3倍）でも、詳細画面の
      * 主ラベルとキャプション（最長の「次は約60日後に浮上」）が欠けずに読めることを確かめる。
      */
