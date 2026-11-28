@@ -652,7 +652,7 @@ fun UroboeApp(store: MemoStore) {
             title = { Text("うろぼえ について") },
             text = {
                 Text(
-                    "「いつかやろう」を「そろそろやろう」に変えるメモ帳。\nバージョン 0.8.1\n\n" +
+                    "「いつかやろう」を「そろそろやろう」に変えるメモ帳。\nバージョン 0.8.2\n\n" +
                         "書いたメモは勝手には消えず、忘却曲線に沿って忘れかけたものが上へ浮かびます。\n\n" +
                         "メモを長押しするとメニューが出て、「まだやらない」「いつかやればいいへ」（自動浮上なしの保留）「やった」などを選べます。データはこの端末の中だけにあります。\n\n" +
                         "アプリを削除（アンインストール）すると、メモもすべて消えます。大事なメモは、画面いちばん下の「その他」→「データを書き出す」から控えを取っておけます。"
@@ -1001,9 +1001,11 @@ private fun ReunionCard(
 // ---------------- 単一画面（全件一覧：上段＝忘却曲線順、下段＝いつかやればいい） ----------------
 
 @Composable
-private fun MenuActionRow(
+fun MenuActionRow(
     text: String,
     caption: String,
+    // v0.8.2：各アクション専用の線アイコン（本人の希望）。色は見出し文字と揃える
+    icon: ActionIconKind,
     primary: Boolean = false,
     danger: Boolean = false,
     // v0.7.1（U-3）：触覚は詳細画面の同じ操作と重さを揃える（「やった」は重い側）
@@ -1024,21 +1026,25 @@ private fun MenuActionRow(
         },
         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
     ) {
-        Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
-            Text(
-                text,
-                style = MaterialTheme.typography.labelLarge,
-                color = when {
-                    danger -> MaterialTheme.colorScheme.onErrorContainer
-                    primary -> MaterialTheme.colorScheme.onPrimaryContainer
-                    else -> MaterialTheme.colorScheme.onSurface
-                },
-            )
-            Text(
-                caption,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+        val titleColor = when {
+            danger -> MaterialTheme.colorScheme.onErrorContainer
+            primary -> MaterialTheme.colorScheme.onPrimaryContainer
+            else -> MaterialTheme.colorScheme.onSurface
+        }
+        Row(
+            Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            ActionIcon(icon, titleColor)
+            Spacer(Modifier.width(12.dp))
+            Column {
+                Text(text, style = MaterialTheme.typography.labelLarge, color = titleColor)
+                Text(
+                    caption,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }
@@ -1347,24 +1353,24 @@ fun SingleScreen(
                 Spacer(Modifier.height(10.dp))
                 if (!currentMenuMemo.lowPriority) {
                     if (currentMenuMemo.willDoAt == null) {
-                        MenuActionRow("そろそろやる", "いちばん上に固定", primary = true) {
+                        MenuActionRow("そろそろやる", "いちばん上に固定", ActionIconKind.ToTop, primary = true) {
                             onWillDo(currentMenuMemo); menuMemo = null
                         }
                     }
-                    MenuActionRow("まだやらない", "次の節目まで後まわし") {
+                    MenuActionRow("まだやらない", "次の節目まで後まわし", ActionIconKind.Clock) {
                         onDefer(currentMenuMemo); menuMemo = null
                     }
-                    MenuActionRow("いつかやればいいへ", "自動浮上なしで保留") {
+                    MenuActionRow("いつかやればいいへ", "自動浮上なしで保留", ActionIconKind.Bookmark) {
                         onMoveToSomeday(currentMenuMemo); menuMemo = null
                     }
-                    MenuActionRow("やった", "一覧から消える", hapticType = HapticFeedbackType.LongPress) {
+                    MenuActionRow("やった", "一覧から消える", ActionIconKind.CheckCircle, hapticType = HapticFeedbackType.LongPress) {
                         onComplete(currentMenuMemo); menuMemo = null
                     }
                 } else {
-                    MenuActionRow("そろそろやろうへ戻す", "先頭に戻って浮上を待つ", primary = true) {
+                    MenuActionRow("そろそろやろうへ戻す", "先頭に戻って浮上を待つ", ActionIconKind.Undo, primary = true) {
                         onMoveToActive(currentMenuMemo); menuMemo = null
                     }
-                    MenuActionRow("削除する", "完全削除・戻せない", danger = true) {
+                    MenuActionRow("削除する", "完全削除・戻せない", ActionIconKind.Trash, danger = true) {
                         onRequestDelete(currentMenuMemo); menuMemo = null
                     }
                 }
