@@ -11,6 +11,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import com.github.takahirom.roborazzi.captureRoboImage
@@ -130,6 +131,27 @@ class ScreenshotTest {
         }
         capture("home_empty")
         assertNodeHealthy("まだメモがありません")
+    }
+
+    /**
+     * v0.8.0（M3 Expressive 試行②）：モーフィング型ローディング指標が
+     * 潰れずに描画されること（形の画素ではなく、48dp の描画領域で判定する）。
+     */
+    @Test
+    fun expressive_loadingIndicator() {
+        composeRule.setContent {
+            AppShell {
+                Box(Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.Center) {
+                    MorphingLoadingIndicator()
+                }
+            }
+        }
+        capture("expressive_loading")
+        val node = composeRule.onNodeWithContentDescription("読み込み中")
+            .assertIsDisplayed()
+            .fetchSemanticsNode()
+        assertTrue("ローディング指標の高さが0です", node.boundsInRoot.height > 0f)
+        assertTrue("ローディング指標の幅が0です", node.boundsInRoot.width > 0f)
     }
 
     @Test
