@@ -5,6 +5,7 @@ import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.PredictiveBackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedContent
@@ -12,8 +13,13 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
@@ -23,6 +29,7 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -45,6 +52,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -87,17 +95,20 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -115,7 +126,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -228,7 +242,31 @@ class MainActivity : ComponentActivity() {
         storeRef = store
         setContent {
             UroboeTheme {
-                UroboeApp(store)
+                // v0.8.0（M3 Expressive 試行②）：起動ローディング。
+                // 初回フレームが 120ms 以内に描けなければ、モーフィング型インジケーターを出す
+                // （遅延表示はチラつき防止の定石。人工的な待ち時間は足さない）
+                var firstFrameDrawn by remember { mutableStateOf(false) }
+                var showStartupLoading by remember { mutableStateOf(false) }
+                LaunchedEffect(Unit) {
+                    val showJob = launch {
+                        delay(120)
+                        showStartupLoading = true
+                    }
+                    withFrameNanos { }
+                    firstFrameDrawn = true
+                    showJob.cancel()
+                }
+                Box(Modifier.fillMaxSize()) {
+                    UroboeApp(store)
+                    if (!firstFrameDrawn && showStartupLoading) {
+                        Box(
+                            Modifier.fillMaxSize().background(Palette.Paper),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            MorphingLoadingIndicator()
+                        }
+                    }
+                }
             }
         }
     }
@@ -732,6 +770,159 @@ private fun MemoCardShell(
     }
 }
 
+// ---------------- M3 Expressive 試行（v0.8.0） ----------------
+// Claude アプリの全面採用事例（Xポスト 2124961333494124589）の棚卸しを受けての最小試行。
+// 公式 Expressive API は material3 1.4 系 alpha のため、本体（1.3 系）では
+// 実証済みの振る舞い（ExpressiveUI の知見：押下＝形のモーフ、ボタングループのスクイーズ、
+// モーフィングローダー）を Compose の基礎部品で再現する。全面適用はせず要所だけ。
+
+/**
+ * 試行①：つながったボタングループ。
+ * 主ボタンと副ボタンを1つのグループとしてつなげ、押している間は
+ * そのボタンが少し広がり（スクイーズ）、角が四角寄りにモーフする。
+ * グループ全体の幅は変わらない。動きを減らす設定ではアニメーションを止める。
+ */
+@Composable
+private fun ExpressiveActionGroup(
+    primaryLabel: String,
+    onPrimary: () -> Unit,
+    secondaryLabel: String,
+    onSecondary: () -> Unit,
+) {
+    val reduceMotion = rememberReduceMotion()
+    val primarySource = remember { MutableInteractionSource() }
+    val secondarySource = remember { MutableInteractionSource() }
+    val primaryPressed by primarySource.collectIsPressedAsState()
+    val secondaryPressed by secondarySource.collectIsPressedAsState()
+
+    fun targetWeight(base: Float, pressed: Boolean, otherPressed: Boolean): Float = when {
+        reduceMotion -> base
+        pressed -> base * 1.15f
+        otherPressed -> base * 0.87f
+        else -> base
+    }
+    val primaryWeight by animateFloatAsState(
+        targetWeight(1.55f, primaryPressed, secondaryPressed),
+        animationSpec = if (reduceMotion) tween(0) else tween(180), label = "groupPrimaryWeight",
+    )
+    val secondaryWeight by animateFloatAsState(
+        targetWeight(1f, secondaryPressed, primaryPressed),
+        animationSpec = if (reduceMotion) tween(0) else tween(180), label = "groupSecondaryWeight",
+    )
+    val primaryOuter by animateDpAsState(
+        if (primaryPressed && !reduceMotion) 10.dp else 24.dp,
+        animationSpec = if (reduceMotion) tween(0) else tween(180), label = "groupPrimaryCorner",
+    )
+    val secondaryOuter by animateDpAsState(
+        if (secondaryPressed && !reduceMotion) 10.dp else 24.dp,
+        animationSpec = if (reduceMotion) tween(0) else tween(180), label = "groupSecondaryCorner",
+    )
+
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+        Surface(
+            onClick = onPrimary,
+            interactionSource = primarySource,
+            shape = RoundedCornerShape(
+                topStart = primaryOuter, bottomStart = primaryOuter,
+                topEnd = 4.dp, bottomEnd = 4.dp,
+            ),
+            color = Palette.Pink,
+            modifier = Modifier.weight(primaryWeight).height(48.dp),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Text(
+                    primaryLabel,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = Color.White,
+                    maxLines = 1,
+                )
+            }
+        }
+        Surface(
+            onClick = onSecondary,
+            interactionSource = secondarySource,
+            shape = RoundedCornerShape(
+                topStart = 4.dp, bottomStart = 4.dp,
+                topEnd = secondaryOuter, bottomEnd = secondaryOuter,
+            ),
+            color = Palette.CardWhite,
+            modifier = Modifier.weight(secondaryWeight).height(48.dp),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Text(
+                    secondaryLabel,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = Palette.InkSoft,
+                    maxLines = 1,
+                )
+            }
+        }
+    }
+}
+
+/** モーフィングローダーの形サンプル（中心からの半径倍率を角度ごとに返す） */
+private fun morphRadius(kind: Int, theta: Double): Double {
+    val c = kotlin.math.cos(theta)
+    val s = kotlin.math.sin(theta)
+    return when (kind) {
+        0 -> 1.0 // 円
+        1 -> 0.92 / maxOf(kotlin.math.abs(c), kotlin.math.abs(s)) * 0.92 // 角丸四角の近似
+        2 -> 1.0 - 0.28 * kotlin.math.cos(3 * theta) * 0.5 - 0.14 // 三角寄り
+        3 -> 1.0 / (kotlin.math.abs(c) + kotlin.math.abs(s)) // ひし形
+        4 -> 1.0 - 0.16 * kotlin.math.cos(5 * theta) // 五弁の花寄り
+        5 -> 0.96 - 0.10 * kotlin.math.cos(2 * theta) // 楕円（ピル寄り）
+        else -> 1.0 - 0.20 * kotlin.math.cos(4 * theta) // 四弁
+    }.coerceIn(0.55, 1.25)
+}
+
+/**
+ * 試行②：モーフィング型ローディングインジケーター。
+ * Material の LoadingIndicator と同じ発想で、形そのものが次々と姿を変える。
+ * 回転と形の変化はわざと位相をずらす（ExpressiveUI の実証知見）。
+ * 動きを減らす設定では静止した円にする。
+ */
+@Composable
+fun MorphingLoadingIndicator(modifier: Modifier = Modifier) {
+    val reduceMotion = rememberReduceMotion()
+    val phase: Float = if (reduceMotion) {
+        0f
+    } else {
+        val transition = rememberInfiniteTransition(label = "morphLoading")
+        val animated by transition.animateFloat(
+            initialValue = 0f,
+            targetValue = 7f,
+            animationSpec = infiniteRepeatable(tween(4900, easing = LinearEasing), RepeatMode.Restart),
+            label = "morphLoadingPhase",
+        )
+        animated
+    }
+    Canvas(
+        modifier.size(48.dp)
+            .semantics { contentDescription = "読み込み中" },
+    ) {
+        val steps = 48
+        val kindFrom = phase.toInt().coerceIn(0, 6)
+        val kindTo = (kindFrom + 1) % 7
+        val frac = (phase - phase.toInt()).toDouble()
+        val rotation = phase * 0.45 // 回転は形の変化より遅く（位相ずらし）
+        val cx = size.width / 2f
+        val cy = size.height / 2f
+        val baseR = size.minDimension / 2f * 0.82f
+        val path = Path()
+        for (i in 0..steps) {
+            val theta = (i.toDouble() / steps) * 2.0 * Math.PI + rotation
+            val rFrom = morphRadius(kindFrom, theta - rotation)
+            val rTo = morphRadius(kindTo, theta - rotation)
+            val r = baseR * (rFrom + (rTo - rFrom) * frac)
+            val x = cx + (r * kotlin.math.cos(theta)).toFloat()
+            val y = cy + (r * kotlin.math.sin(theta)).toFloat()
+            if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+        }
+        path.close()
+        drawPath(path, color = Palette.Pink)
+    }
+}
+
 /**
  * v0.7.3：「きょうの再会」カード。暦の節目（100日／半年／○年目の同じ日）を迎えたメモを、
  * 忘却曲線ソートには混ぜず、ホームの一番上に別枠で1件だけ静かに置く。
@@ -788,15 +979,14 @@ private fun ReunionCard(
             style = MaterialTheme.typography.bodySmall,
             color = Palette.InkSoft,
         )
-        Spacer(Modifier.height(6.dp))
-        Row {
-            TextButton(onClick = onRestart) {
-                Text("そろそろやろうに戻す", color = Palette.Pink, fontWeight = FontWeight.Bold)
-            }
-            TextButton(onClick = onDismiss) {
-                Text("とじる", color = Palette.InkSoft)
-            }
-        }
+        Spacer(Modifier.height(8.dp))
+        // v0.8.0（M3 Expressive 試行①）：2つの操作をつながったボタングループにする
+        ExpressiveActionGroup(
+            primaryLabel = "そろそろやろうに戻す",
+            onPrimary = onRestart,
+            secondaryLabel = "とじる",
+            onSecondary = onDismiss,
+        )
     }
 }
 
@@ -1427,9 +1617,30 @@ fun EditScreen(
         lastField = -1
         persist(prev.first, prev.second, prev.third)
     }
-    BackHandler { onBack() }
+    // v0.8.0（M3 Expressive 試行③）：予測型バック。
+    // 戻るジェスチャの進み具合に合わせて画面を少し縮め、指を離したら戻る。
+    // 途中で指を戻してキャンセルしたら、画面もそのまま元に戻る（プレビュー表示つき）。
+    // 古い端末（API 33 以下）では通常の戻る操作として働く。
+    var backProgress by remember { mutableFloatStateOf(0f) }
+    PredictiveBackHandler { progressFlow ->
+        try {
+            progressFlow.collect { event -> backProgress = event.progress }
+            onBack()
+        } catch (e: CancellationException) {
+            backProgress = 0f
+            throw e
+        }
+    }
 
-    Surface(color = MaterialTheme.colorScheme.background, modifier = Modifier.fillMaxSize()) {
+    Surface(
+        color = MaterialTheme.colorScheme.background,
+        modifier = Modifier.fillMaxSize().graphicsLayer {
+            val p = backProgress.coerceIn(0f, 1f)
+            scaleX = 1f - 0.06f * p
+            scaleY = 1f - 0.06f * p
+            alpha = 1f - 0.25f * p
+        },
+    ) {
         Column(
             Modifier.fillMaxSize().navigationBarsPadding().imePadding()
         ) {
